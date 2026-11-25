@@ -1,0 +1,6 @@
+{
+  "name": "tps_panel",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Real-time per-session TPS monitor sidecar for Antigravity"
+}

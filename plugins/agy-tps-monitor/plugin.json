@@ -1,0 +1,11 @@
+{
+  "name": "agy-tps-monitor",
+  "displayName": "AGY 会话监控 (TPS & 上下文)",
+  "version": "3.0.0",
+  "description": "极简当前会话监控侧边栏：专注展示当前会话的实时/平均 TPS、Token 消耗分布、1M 上下文构成（CLI 点阵风格 + 缓存保鲜倒计时 + 水位趋势 + 压缩记录）。",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "打开右侧会话监控面板查看当前 TPS、Token 与上下文占用",
+    "解释当前会话的缓存命中率、大块上下文占用与压缩情况"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "worker-dispatch",
+  "displayName": "Worker Dispatch",
+  "version": "1.0.0",
+  "description": "跨 Claude Code 与 Antigravity 的统一多引擎派单插件，集成 codex-worker、dsh-worker 与 worker-orchestrator 总控编排（支持自动多子仓 Git Worktree 隔离、Windows Job Object 进程回收、只读锁权与严审闭环）。",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "用 codex-worker 排查并修复当前问题",
+    "让 codex 只读反向审查我当前的 git diff",
+    "用 dsh-worker 帮我补齐这批模块的单元测试",
+    "和 codex 跑一遍双盲方案再决定架构改动"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "sb_panel",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Real-time Spring Boot local service monitor & controller sidecar for Antigravity"
+}

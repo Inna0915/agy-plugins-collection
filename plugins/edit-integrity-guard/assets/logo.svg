@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none">
+  <!-- Transparent canvas with >10% outer margin -->
+  <rect x="28" y="28" width="200" height="200" rx="44" fill="#1E293B" stroke="#38BDF8" stroke-width="10"/>
+  <path d="M128 56L184 78V124C184 162 159 191 128 202C97 191 72 162 72 124V78L128 56Z" fill="#0F172A" stroke="#38BDF8" stroke-width="8" stroke-linejoin="round"/>
+  <!-- Split channels barred badge + lock -->
+  <rect x="102" y="118" width="52" height="40" rx="8" fill="#F8FAFC"/>
+  <path d="M112 118V104C112 95.1634 119.163 88 128 88C136.837 88 144 95.1634 144 104V118" stroke="#38BDF8" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="128" cy="136" r="6" fill="#0F172A"/>
+  <path d="M128 140V148" stroke="#0F172A" stroke-width="5" stroke-linecap="round"/>
+</svg>

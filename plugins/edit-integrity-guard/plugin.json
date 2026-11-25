@@ -1,0 +1,7 @@
+{
+  "name": "edit-integrity-guard",
+  "displayName": "Edit Integrity Guard",
+  "version": "2.0.0",
+  "description": "统一启用兼容企业透明加密与 BOM/CRLF 保护的 agy-fs.mjs 受控脚本单一通道，拦截工作区 edit_file/write_file 与高危裸写盘命令。",
+  "logo": "assets/logo.svg"
+}

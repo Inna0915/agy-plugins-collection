@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none">
+  <rect x="28" y="28" width="200" height="200" rx="44" fill="#0F172A" stroke="#38BDF8" stroke-width="10"/>
+  <!-- Gauge Arc -->
+  <path d="M68 158A68 68 0 1 1 188 158" stroke="#334155" stroke-width="14" stroke-linecap="round"/>
+  <path d="M68 158A68 68 0 0 1 174 84" stroke="#38BDF8" stroke-width="14" stroke-linecap="round"/>
+  <path d="M174 84A68 68 0 0 1 188 158" stroke="#34D399" stroke-width="14" stroke-linecap="round"/>
+  <!-- Needle -->
+  <line x1="128" y1="150" x2="164" y2="98" stroke="#F8FAFC" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="128" cy="150" r="11" fill="#38BDF8"/>
+  <!-- Pulse Bar -->
+  <path d="M76 190H106L118 174L134 202L146 184H180" stroke="#34D399" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

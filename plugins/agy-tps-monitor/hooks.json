@@ -1,0 +1,37 @@
+{
+  "agy-tps-collector": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "node hooks/collector.cjs pre_invocation",
+        "timeout": 15
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node hooks/collector.cjs pre_tool",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostInvocation": [
+      {
+        "type": "command",
+        "command": "node hooks/collector.cjs post_invocation",
+        "timeout": 15
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "node hooks/collector.cjs stop",
+        "timeout": 15
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "jira-confluence-flow",
+  "displayName": "Jira & Confluence Flow",
+  "version": "1.0.0",
+  "description": "全局集成 Jira（任务查询、分析、创建、修复、状态流转、导出与周报）和 Confluence（文档搜索、读取、发布与更新）全部 Skill 及 MCP 工具。",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "查询我当前迭代未完成的 Jira 任务",
+    "生成本周个人 Jira 工作周报",
+    "搜索 Confluence 文档并总结关键内容"
+  ]
+}

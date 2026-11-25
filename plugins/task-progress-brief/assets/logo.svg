@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none">
+  <!-- Transparent canvas with >10% outer margin -->
+  <rect x="28" y="28" width="200" height="200" rx="44" fill="#0F172A" stroke="#38BDF8" stroke-width="10"/>
+  <!-- Step 1: Completed node + brief bar -->
+  <circle cx="78" cy="86" r="12" fill="#34D399"/>
+  <rect x="104" y="79" width="84" height="14" rx="7" fill="#E2E8F0"/>
+  <!-- Connector 1-2 -->
+  <line x1="78" y1="98" x2="78" y2="116" stroke="#38BDF8" stroke-width="5" stroke-linecap="round"/>
+  <!-- Step 2: Active streaming node + highlighted brief bar -->
+  <circle cx="78" cy="128" r="12" fill="#38BDF8"/>
+  <rect x="104" y="121" width="92" height="14" rx="7" fill="#38BDF8"/>
+  <!-- Connector 2-3 -->
+  <line x1="78" y1="140" x2="78" y2="158" stroke="#64748B" stroke-width="5" stroke-linecap="round" stroke-dasharray="4 6"/>
+  <!-- Step 3: Upcoming node + muted brief bar -->
+  <circle cx="78" cy="170" r="12" stroke="#94A3B8" stroke-width="5" fill="#0F172A"/>
+  <rect x="104" y="163" width="66" height="14" rx="7" fill="#64748B"/>
+</svg>

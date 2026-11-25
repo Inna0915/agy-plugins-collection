@@ -1,0 +1,12 @@
+{
+  "name": "task-progress-brief",
+  "displayName": "Warm Progress & On-Demand UI",
+  "version": "2.2.0",
+  "description": "全局结对搭档叙事规范：短程琐碎动作静默，在开场、动手改码前、关键发现、连续静默~8步保活及分叉拍板时自然同步进展；内嵌交互微视图（Generative UI）严格按需触发，默认使用原生 Markdown 极速响应。",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "拉齐所有仓库分支并核查日志双写链路与合并可行性",
+    "梳理核心模块调用链路（按需指定：并用内嵌交互卡片展示对比方案）",
+    "排查构建报错并在关键节点同步根因进展"
+  ]
+}

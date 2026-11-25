@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "jira_flow": {
+      "command": "C:/Program Files/nodejs/node.exe",
+      "args": [
+        "D:/dev/vscode/jira-flow/dist/cli.js",
+        "mcp"
+      ]
+    },
+    "confluence_flow": {
+      "command": "C:/Program Files/nodejs/node.exe",
+      "args": [
+        "D:/dev/vscode/confluence-flow/dist/cli.js",
+        "mcp"
+      ]
+    }
+  }
+}

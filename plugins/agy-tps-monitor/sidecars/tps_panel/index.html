@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="frame-src 'none'; child-src 'none'">
+  <title>会话监控 · TPS &amp; 上下文</title>
+  <script src="/preload.js"></script>
+  <link rel="stylesheet" href="/styles.css?v=20261120v3">
+</head>
+<body>
+  <div class="shell">
+    <!-- Shared SVG Gradients -->
+    <svg width="0" height="0" class="svg-defs" aria-hidden="true">
+      <defs>
+        <linearGradient id="grad-tps" x1="0%" y1="100%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#0ea5e9"/>
+          <stop offset="55%" stop-color="#06b6d4"/>
+          <stop offset="100%" stop-color="#10b981"/>
+        </linearGradient>
+        <linearGradient id="grad-cache" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#22d3ee"/>
+          <stop offset="100%" stop-color="#0891b2"/>
+        </linearGradient>
+        <linearGradient id="grad-input" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#3b82f6"/>
+          <stop offset="100%" stop-color="#1d4ed8"/>
+        </linearGradient>
+        <linearGradient id="grad-output" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#a855f7"/>
+          <stop offset="100%" stop-color="#6366f1"/>
+        </linearGradient>
+        <linearGradient id="grad-green" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#34d399"/>
+          <stop offset="100%" stop-color="#059669"/>
+        </linearGradient>
+        <linearGradient id="grad-amber" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#fbbf24"/>
+          <stop offset="100%" stop-color="#d97706"/>
+        </linearGradient>
+        <linearGradient id="grad-red" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#f87171"/>
+          <stop offset="100%" stop-color="#dc2626"/>
+        </linearGradient>
+      </defs>
+    </svg>
+
+    <header class="topbar">
+      <div class="topbar-row">
+        <div class="brand">
+          <span class="status-ring" id="status-ring">
+            <span class="status-dot" id="status-dot" aria-hidden="true"></span>
+          </span>
+          <h1 class="title">当前会话监控</h1>
+          <span class="status-pill" id="status-text">空闲</span>
+        </div>
+        <button type="button" id="btn-unit-toggle" class="unit-btn" title="切换 Token 显示格式（K/M 简写 或 精确数字）">单位: K/M ⇄</button>
+      </div>
+      <div class="session-meta-row">
+        <span class="session-title-wrap">
+          <svg class="meta-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M3 4.25A1.75 1.75 0 014.75 2.5h6.5A1.75 1.75 0 0113 4.25v5.5A1.75 1.75 0 0111.25 11.5H6.5L3.5 13.75V11.5A1.75 1.75 0 013 10.1V4.25z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
+          </svg>
+          <span class="session-title" id="session-title" title="">正在读取当前会话…</span>
+        </span>
+        <span class="model-pill" id="model-name">--</span>
+      </div>
+    </header>
+
+    <main class="content">
+      <!-- 1. 推理速率 TPS：220° 弧形速度表 + 平均/峰值 + 迷你速率波形 -->
+      <section class="card tps-card" aria-labelledby="sec-tps-title">
+        <div class="card-head">
+          <div class="card-title-wrap">
+            <span class="card-icon icon-tps" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none">
+                <path d="M9.1 2L3.5 9h4.1l-.7 5 5.6-7H8.4l.7-5z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <h2 class="card-title" id="sec-tps-title">推理速率 · TPS</h2>
+          </div>
+          <span class="head-badge" id="tps-live-meta">等待推理步骤</span>
+        </div>
+
+        <!-- 按需浮现：仅当出现重试 / 长时间无进展 / 请求失败 / 中断时显示 -->
+        <div class="health-alert hidden" id="tps-health-alert" role="status"></div>
+
+        <div class="tps-split">
+          <div class="gauge-box">
+            <svg class="gauge-svg" viewBox="0 0 136 106" aria-label="生成速度仪表盘">
+              <path class="gauge-track" d="M 22.68 83.13 A 50 50 0 1 1 113.32 83.13"></path>
+              <path class="gauge-arc" id="tps-gauge-arc" d="M 22.68 83.13 A 50 50 0 1 1 113.32 83.13" stroke-dasharray="0 240" stroke-dashoffset="0"></path>
+            </svg>
+            <div class="gauge-center">
+              <div class="gauge-val-row">
+                <span class="gauge-main" id="tps-realtime">0.0</span>
+              </div>
+              <span class="gauge-unit">tok/s</span>
+              <span class="gauge-caption" id="tps-realtime-label">生成速度</span>
+            </div>
+          </div>
+
+          <div class="tps-right">
+            <div class="tps-stat-pair">
+              <div class="tps-stat-tile">
+                <span class="tps-stat-label">平均 TPS</span>
+                <div class="tps-stat-val-row">
+                  <span class="tps-stat-val" id="tps-avg">0.0</span>
+                  <span class="tps-stat-unit">tok/s</span>
+                </div>
+                <span class="tps-stat-sub" id="tps-avg-sub">全会话加权均速</span>
+              </div>
+              <div class="tps-stat-tile">
+                <span class="tps-stat-label">峰值 TPS</span>
+                <div class="tps-stat-val-row">
+                  <span class="tps-stat-val" id="tps-peak">0.0</span>
+                  <span class="tps-stat-unit">tok/s</span>
+                </div>
+                <span class="tps-stat-sub" id="tps-delta-vs-avg">相对均速 --</span>
+              </div>
+            </div>
+
+            <div class="tps-wave-wrap">
+              <div class="tps-wave-head">
+                <span>近步速率波动</span>
+                <span id="tps-wave-avg-label">均线 0.0 tok/s</span>
+              </div>
+              <svg class="tps-wave-svg" id="tps-sparkline" viewBox="0 0 260 40" preserveAspectRatio="xMidYMid meet" aria-label="TPS 速率走势"></svg>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Token 消耗：三色渐变环形饼图 + 底纹进度图例 -->
+      <section class="card token-card" id="token-card" aria-labelledby="sec-token-title">
+        <div class="card-head">
+          <div class="card-title-wrap">
+            <span class="card-icon icon-token" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.35"/>
+                <path d="M8 2.5V8l3.9 3.9" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
+              </svg>
+            </span>
+            <h2 class="card-title" id="sec-token-title">Token 消耗</h2>
+          </div>
+          <span class="head-meta" id="token-cache-hit">累计缓存命中 0.0%</span>
+        </div>
+
+        <div class="chart-split">
+          <div class="donut-box clickable" id="token-hero" title="点击切换 K/M 与精确数字显示">
+            <svg class="donut-svg" viewBox="0 0 120 120" aria-label="Token 构成环形饼图">
+              <circle class="donut-track" cx="60" cy="60" r="45"></circle>
+              <circle class="donut-inner-ring" cx="60" cy="60" r="36"></circle>
+              <g transform="rotate(-90 60 60)">
+                <circle class="donut-arc arc-cache" id="donut-tok-cache" cx="60" cy="60" r="45" stroke-dasharray="0 282.74" stroke-dashoffset="0"></circle>
+                <circle class="donut-arc arc-input" id="donut-tok-input" cx="60" cy="60" r="45" stroke-dasharray="0 282.74" stroke-dashoffset="0"></circle>
+                <circle class="donut-arc arc-output" id="donut-tok-output" cx="60" cy="60" r="45" stroke-dasharray="0 282.74" stroke-dashoffset="0"></circle>
+              </g>
+            </svg>
+            <div class="donut-center">
+              <span class="donut-main" id="total-tokens">0</span>
+              <span class="donut-sub" id="token-donut-sub">总消耗</span>
+            </div>
+          </div>
+
+          <div class="legend-list" id="token-legend">
+            <div class="legend-row" data-seg="cache">
+              <span class="legend-bg bg-cache" id="bg-tok-cache" style="width:0%"></span>
+              <div class="legend-left">
+                <i class="swatch swatch-cache"></i>
+                <span class="legend-name">缓存读取</span>
+              </div>
+              <div class="legend-right">
+                <span class="legend-val" id="tok-cache">0</span>
+                <span class="legend-pct" id="tok-cache-pct">0.0%</span>
+              </div>
+            </div>
+            <div class="legend-row" data-seg="input">
+              <span class="legend-bg bg-input" id="bg-tok-input" style="width:0%"></span>
+              <div class="legend-left">
+                <i class="swatch swatch-input"></i>
+                <span class="legend-name">新增输入</span>
+              </div>
+              <div class="legend-right">
+                <span class="legend-val" id="tok-input">0</span>
+                <span class="legend-pct" id="tok-input-pct">0.0%</span>
+              </div>
+            </div>
+            <div class="legend-row" data-seg="output">
+              <span class="legend-bg bg-output" id="bg-tok-output" style="width:0%"></span>
+              <div class="legend-left">
+                <i class="swatch swatch-output"></i>
+                <span class="legend-name">模型输出</span>
+              </div>
+              <div class="legend-right">
+                <span class="legend-val" id="tok-output">0</span>
+                <span class="legend-pct" id="tok-output-pct">0.0%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-foot">
+          <span id="token-sub-meta">0 轮对话 · 0 次推理</span>
+          <span class="foot-duration" id="session-duration" title="">历时 --</span>
+        </div>
+      </section>
+
+      <!-- 3. 上下文信息：CLI 原生 /context 风格 10×10 网格 + 分类表 + 内嵌缓存保鲜条 -->
+      <section class="card context-card" id="context-card" aria-labelledby="sec-ctx-title">
+        <div class="card-head">
+          <div class="card-title-wrap">
+            <span class="card-icon icon-ctx" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none">
+                <path d="M8 2.25L2.25 5.5 8 8.75 13.75 5.5 8 2.25z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
+                <path d="M2.25 8.25L8 11.5l5.75-3.25M2.25 11L8 14.25 13.75 11" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <h2 class="card-title" id="sec-ctx-title">上下文信息</h2>
+            <span class="ctx-head-ratio" id="ctx-head-ratio">0 / 1.00M</span>
+          </div>
+          <span class="pct-pill tone-green" id="ctx-pct-pill">0.0%</span>
+        </div>
+
+        <div class="notice-banner hidden" id="ctx-compacted-banner">刚刚完成上下文压缩，等待下一步模型调用刷新水位</div>
+
+        <div class="cli-ctx-layout" id="ctx-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="cli-grid-col">
+            <div class="cli-grid" id="cli-ctx-grid" aria-label="10x10 上下文占用网格"></div>
+            <div class="cli-grid-foot" id="cli-grid-foot">每格 ≈ 10.0K · 约 512K 自动压缩</div>
+          </div>
+
+          <div class="cli-cat-col">
+            <div class="cli-cat-list" id="cli-cat-list"></div>
+            <div class="cli-ctx-meta" id="cli-ctx-meta">缓存命中 0.0% · 上步 -- · 峰值 0</div>
+          </div>
+        </div>
+
+        <!-- 合并内嵌：缓存状态与倒计时 -->
+        <div class="ctx-cache-strip" id="ctx-cache-strip" title="">
+          <div class="ctx-cache-row">
+            <div class="ctx-cache-left">
+              <svg class="ctx-cache-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="8.5" r="5.25" stroke="currentColor" stroke-width="1.35"/>
+                <path d="M8 5.5v3l2 1.25M6.25 1.75h3.5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="ctx-cache-title">缓存状态</span>
+              <span class="ctx-cache-pill tone-muted" id="cache-state-badge">等待建缓</span>
+            </div>
+            <div class="ctx-cache-right">
+              <span class="ctx-cache-label" id="cache-countdown-label">暂无记录</span>
+              <span class="ctx-cache-timer" id="cache-countdown-val">--:--</span>
+            </div>
+          </div>
+          <div class="ctx-cache-track">
+            <div class="ctx-cache-fill tone-muted" id="cache-ttl-fill" style="width:0%"></div>
+          </div>
+        </div>
+
+        <!-- 合并内嵌：上下文水位趋势与 512K 压缩参考线 -->
+        <div class="spark-wrap" id="spark-wrap">
+          <div class="spark-head">
+            <span class="spark-title">水位趋势</span>
+            <span class="spark-limit" id="spark-limit-label">压缩参考线 512.0K</span>
+          </div>
+          <svg class="spark-svg" id="ctx-sparkline" viewBox="0 0 420 64" preserveAspectRatio="xMidYMid meet" aria-label="上下文趋势图"></svg>
+          <div class="spark-pace-row">
+            <span class="spark-pace-text" id="compact-pace-line">尚未触发自动压缩 · 等待上下文增长数据</span>
+            <span class="compact-mini-badge hidden" id="compact-count-badge">已压缩 0 次</span>
+          </div>
+        </div>
+
+        <!-- 按需展开：当前上下文大块占用 Top 3（默认收起） -->
+        <details class="compact-history-box hidden" id="top-consumers-box">
+          <summary class="compact-history-summary" id="top-consumers-summary">大块占用 Top 3</summary>
+          <div class="top-consumers-list" id="top-consumers-list"></div>
+        </details>
+
+        <!-- 按需显现：仅当本会话发生过上下文压缩时展开历次压缩记录 -->
+        <details class="compact-history-box hidden" id="compact-history-box">
+          <summary class="compact-history-summary" id="compact-history-summary">已压缩 0 次</summary>
+          <div class="compact-list" id="compact-list"></div>
+        </details>
+      </section>
+    </main>
+  </div>
+  <script src="/app.js?v=20261120v5"></script>
+</body>
+</html>

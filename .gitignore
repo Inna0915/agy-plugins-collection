@@ -1,0 +1,10 @@
+# Runtime & local caches
+node_modules/
+.tmp/
+.task-temp/
+logs/
+*.log
+*.zip
+*.tgz
+.DS_Store
+Thumbs.db

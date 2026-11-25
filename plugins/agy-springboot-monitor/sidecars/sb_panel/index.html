@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="frame-src 'none'; child-src 'none'">
+  <title>Spring Boot 服务监控</title>
+  <script src="/preload.js"></script>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="shell" id="app-shell">
+    <!-- Top Header -->
+    <header class="topbar">
+      <div class="topbar-row">
+        <div class="brand">
+          <span class="status-ring" id="global-ring">
+            <span class="status-dot" id="global-dot" aria-hidden="true"></span>
+          </span>
+          <h1 class="title">Spring Boot 服务监控</h1>
+          <span class="status-pill" id="global-pill">扫描中</span>
+        </div>
+        <div class="top-actions">
+          <button type="button" id="btn-toggle-launcher" class="top-btn primary" title="展开/收起快速启动面板">+ 启动</button>
+          <button type="button" id="btn-refresh" class="top-btn" title="立即刷新本地 Java 进程与端口">↻</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Toast / Event Banner -->
+    <div id="event-banner" class="event-banner hidden" role="status"></div>
+
+    <!-- Top Region (hides when Log Console is maximized) -->
+    <div class="top-region" id="top-region">
+      <!-- Summary Strip Card -->
+      <section class="card summary-card" aria-label="运行概览">
+        <div class="stat-grid">
+          <div class="stat-tile">
+            <span class="stat-label">运行中服务</span>
+            <div class="stat-val-row">
+              <span class="stat-val accent-green" id="sum-up">0</span>
+              <span class="stat-sub" id="sum-busy"></span>
+            </div>
+          </div>
+          <div class="stat-tile">
+            <span class="stat-label">总内存占用</span>
+            <div class="stat-val-row">
+              <span class="stat-val" id="sum-mem">0MB</span>
+            </div>
+          </div>
+          <div class="stat-tile">
+            <span class="stat-label">活跃端口</span>
+            <div class="stat-ports" id="sum-ports">--</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Collapsible Quick Launcher Drawer -->
+      <section id="launcher-card" class="card launcher-card hidden" aria-label="快速启动 Spring Boot">
+        <div class="card-head">
+          <div class="card-title-wrap">
+            <span class="card-icon icon-launch" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none">
+                <path d="M5 3.5l8 4.5-8 4.5V3.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <h2 class="card-title">快速启动项目</h2>
+          </div>
+          <span class="head-badge" id="launcher-port-hint">端口自动顺延</span>
+        </div>
+
+        <div class="form-grid">
+          <div class="field full">
+            <label for="ws-select">项目工作区</label>
+            <div class="ws-input-row">
+              <select id="ws-select" class="input"></select>
+              <input id="ws-custom" class="input hidden" type="text" placeholder="输入工作区绝对路径，如 D:\dev\code\fms269">
+              <button type="button" id="btn-ws-mode" class="mini-btn" title="切换手动输入路径">路径</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="db-select">关系型数据库 (--db)</label>
+            <select id="db-select" class="input">
+              <option value="">默认 (yml 当前生效)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="port-input">端口 (留空自动顺延)</label>
+            <input id="port-input" class="input" type="text" placeholder="如 30030">
+          </div>
+
+          <div class="field">
+            <label for="es-select">业务 ES (--es)</label>
+            <select id="es-select" class="input">
+              <option value="">默认 (spring.elasticsearch)</option>
+              <option value="off">关闭业务 ES (off)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="eslog-select">日志 ES (--eslog)</label>
+            <select id="eslog-select" class="input">
+              <option value="">默认 (spring.elasticlog)</option>
+            </select>
+          </div>
+
+          <div class="field full">
+            <div class="label-row">
+              <label>本地模块 POM（勾选 = 走本地源码；取消 = 走 .m2）</label>
+              <div class="chip-shortcuts">
+                <button type="button" class="link-btn" id="btn-mod-idea">按 IDEA 默认</button>
+                <button type="button" class="link-btn" id="btn-mod-starter">仅 Starter</button>
+              </div>
+            </div>
+            <div id="mod-chips" class="mod-chips">
+              <span class="muted-hint">选择项目后自动加载本地模块…</span>
+            </div>
+          </div>
+
+          <div class="field full launch-opts-row">
+            <label class="chk-label"><input type="checkbox" id="chk-nobuild"> 跳过编译 (--no-build)</label>
+            <label class="chk-label"><input type="checkbox" id="chk-debug"> 远程调试 5005</label>
+            <label class="chk-label"><input type="checkbox" id="chk-save"> 存为默认</label>
+          </div>
+
+          <div class="field full launch-footer">
+            <span class="muted-hint" id="launcher-status"></span>
+            <div class="launch-btns">
+              <button type="button" id="btn-cancel-launch" class="btn-ghost">收起</button>
+              <button type="button" id="btn-do-launch" class="btn-primary">立即启动</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Active Services List -->
+      <main id="services-list" class="services-list"></main>
+
+      <!-- Empty State + Quick Shortcuts -->
+      <section id="empty-card" class="card empty-card hidden">
+        <div class="empty-title">当前没有运行中的 Spring Boot 服务</div>
+        <div class="empty-sub">点击右上角「+ 启动」或下方常用项目直接拉起，无需打开 IDEA</div>
+        <div id="quick-ws-pills" class="quick-ws-pills"></div>
+      </section>
+    </div>
+
+    <!-- Docked Full-Height Log Console (stretches to fill ALL remaining height & 100% width!) -->
+    <section id="log-console" class="log-console hidden" aria-label="实时日志面板">
+      <div class="log-head">
+        <div class="log-tabs" id="log-tabs"></div>
+        <div class="log-controls">
+          <input id="log-search" class="log-search" type="text" placeholder="过滤关键词…">
+          <button type="button" id="btn-log-err" class="log-bar-btn" title="仅显示 ERROR / Exception / Caused by">仅报错</button>
+          <button type="button" id="btn-log-wrap" class="log-bar-btn on" title="切换自动换行">换行</button>
+          <button type="button" id="btn-log-bottom" class="log-bar-btn on" title="自动跟随最新日志底部（向上滚动自动暂停）">↓ 跟随</button>
+          <button type="button" id="btn-log-refresh" class="log-bar-btn" title="立即刷新日志">刷新</button>
+          <button type="button" id="btn-log-max" class="log-bar-btn" title="全屏查看日志 / 还原">⤢ 全屏</button>
+          <button type="button" id="btn-log-close" class="log-bar-btn" title="关闭当前日志">✕</button>
+        </div>
+      </div>
+      <div class="log-subbar">
+        <span id="log-file-meta" class="log-file-meta"></span>
+        <span id="log-line-meta" class="log-file-meta"></span>
+      </div>
+      <pre id="log-pre" class="log-pre wrap"></pre>
+    </section>
+
+    <!-- Footer meta -->
+    <footer class="footer-bar">
+      <label class="chk-label small"><input type="checkbox" id="chk-show-all"> 显示 IDE 辅助 JVM</label>
+      <span id="scan-meta" class="muted-hint">每 2.5s 自动刷新</span>
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

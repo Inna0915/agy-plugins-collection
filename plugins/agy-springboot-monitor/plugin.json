@@ -1,0 +1,12 @@
+{
+  "name": "agy-springboot-monitor",
+  "displayName": "Spring Boot 服务监控",
+  "version": "1.0.0",
+  "description": "Antigravity 右侧边栏 Spring Boot 本地服务实时监控与启停控制台：实时展示本机所有活跃服务（skill / IDEA / 手动启动）的启停状态、端口、内存、数据库/ES/ESLog 配置与日志，支持一键启停、重启与切库启动。",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "打开右侧 Spring Boot 服务监控面板查看当前本地服务状态",
+    "查看现在哪些 Spring Boot 项目在运行及占用端口",
+    "启动当前项目的 Spring Boot 并监控就绪状态"
+  ]
+}
