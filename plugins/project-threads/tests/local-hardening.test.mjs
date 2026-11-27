@@ -12,11 +12,16 @@ import {
   buildModelConfigLookup,
   resolveConcreteModelIdFromLookup,
 } from '../lib/ls-client.mjs';
-import { extractSessionTelemetry } from '../lib/transcript.mjs';
+import {
+  buildCoordinatorReport,
+  DEFAULT_COORDINATOR_REPORT_MAX_CHARS,
+  extractSessionTelemetry,
+} from '../lib/transcript.mjs';
 import {
   dispatchThread,
   getDefaultThreadModel,
   getModelSelectorState,
+  getThreadDetail,
   initCoordinator,
   inspectWorktreeGit,
   invalidateWorktreeGitCache,
@@ -445,6 +450,181 @@ test('extractSessionTelemetry matches agy-tps-monitor accounting for totalTokens
   assert.equal(claudeTel.totalTokens, 152500);
 });
 
+test('buildCoordinatorReport raises cap to 6500 and preserves ### Thread Summary intact when folding long bodies', () => {
+  assert.equal(DEFAULT_COORDINATOR_REPORT_MAX_CHARS, 6500);
+
+  // 1. Report between old 4200 and new 6500 passes through untruncated
+  const medium = `${'A'.repeat(5800)}\n\n### Thread Summary\n- All 5800 chars kept.`;
+  assert.equal(buildCoordinatorReport(medium), medium);
+
+  // 2. Long report (>6500) preserves 100% of ### Thread Summary and folds only the preceding body
+  const summarySection = [
+    '### Thread Summary',
+    '- **Root Cause**: Exact detail #1 that must never be folded away.',
+    '- **Modified Files**: `src/a.java`, `src/b.java`',
+    `- **Checklist**: ${'KEY-ITEM '.repeat(120).trim()}`,
+    '- **Tail Marker**: SUMMARY_END_TOKEN_999',
+  ].join('\n');
+  const longBody = `## Detailed Audit\nSTART_TOKEN_111\n${'Verbose finding line.\n'.repeat(450)}`;
+  const combined = `${longBody}\n${summarySection}`;
+  assert.ok(combined.length > 10000);
+
+  const folded = buildCoordinatorReport(combined);
+  assert.ok(folded.includes('START_TOKEN_111'), 'keeps opening context');
+  assert.ok(folded.includes(summarySection), 'preserves entire ### Thread Summary verbatim');
+  assert.ok(folded.includes('SUMMARY_END_TOKEN_999'), 'preserves summary ending');
+  assert.ok(
+    folded.includes('get_thread_detail(threadId, includeFullReport: true)'),
+    'hints Coordinator to use get_thread_detail instead of reading raw transcript_full.jsonl',
+  );
+  assert.ok(folded.length <= DEFAULT_COORDINATOR_REPORT_MAX_CHARS + 60);
+
+  // 3. Report without summary heading falls back to head + tail cleanly
+  const noSummary = `HEAD_MARKER ${'X'.repeat(9000)} TAIL_MARKER`;
+  const fallbackFolded = buildCoordinatorReport(noSummary);
+  assert.ok(fallbackFolded.includes('HEAD_MARKER'));
+  assert.ok(fallbackFolded.includes('TAIL_MARKER'));
+  assert.ok(fallbackFolded.includes('get_thread_detail(threadId, includeFullReport: true)'));
+  assert.ok(fallbackFolded.length <= DEFAULT_COORDINATOR_REPORT_MAX_CHARS + 60);
+
+  // 4. Oversized summary (>6500 by itself) still caps output cleanly
+  const hugeSummary = `Intro context.\n\n### Thread Summary\nS_HEAD ${'Z'.repeat(8500)} S_TAIL`;
+  const cappedHuge = buildCoordinatorReport(hugeSummary);
+  assert.ok(cappedHuge.includes('### Thread Summary'));
+  assert.ok(cappedHuge.includes('S_HEAD'));
+  assert.ok(cappedHuge.includes('S_TAIL'));
+  assert.ok(cappedHuge.length <= DEFAULT_COORDINATOR_REPORT_MAX_CHARS + 80);
+});
+
+test('getThreadDetail supports includeFullReport=true with transcript_full hydration and maxReportChars clipping', async (t) => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'pt-detail-'));
+  const geminiDir = join(tempRoot, '.gemini');
+  const appDataDir = join(geminiDir, 'antigravity');
+  mkdirSync(join(appDataDir, 'project-threads'), { recursive: true });
+
+  const envKeys = ['ANTIGRAVITY_GEMINI_DIR', 'ANTIGRAVITY_APP_DATA_DIR'];
+  const prevEnv = Object.fromEntries(envKeys.map((k) => [k, process.env[k]]));
+  process.env.ANTIGRAVITY_GEMINI_DIR = geminiDir;
+  process.env.ANTIGRAVITY_APP_DATA_DIR = appDataDir;
+
+  t.after(() => {
+    for (const [k, v] of Object.entries(prevEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  const workerConvId = 'conv-worker-fullreport-01';
+  const txDir = join(appDataDir, 'brain', workerConvId, '.system_generated', 'logs');
+  mkdirSync(txDir, { recursive: true });
+
+  const fullAssistantText = `## Full Investigation\n${'Detail row 12345.\n'.repeat(550)}\n### Thread Summary\nFINAL_VERIFIED_FACT`;
+  assert.ok(fullAssistantText.length > 9000);
+
+  const compactSteps = [
+    { step_index: 0, type: 'USER_INPUT', content: '<USER_REQUEST>Investigate</USER_REQUEST>' },
+    {
+      step_index: 1,
+      type: 'PLANNER_RESPONSE',
+      thinking: 'SECRET_THINKING_NOISE_SHOULD_NOT_APPEAR',
+      tool_calls: [{ name: 'run_command', args: { CommandLine: 'git status' } }],
+    },
+    {
+      step_index: 2,
+      type: 'PLANNER_RESPONSE',
+      thinking: 'MORE_THINKING_NOISE',
+      content: `${fullAssistantText.slice(0, 1000)} <truncated 8500 chars>`,
+      truncated_fields: ['content'],
+    },
+  ];
+  const fullSteps = [
+    compactSteps[0],
+    compactSteps[1],
+    {
+      step_index: 2,
+      type: 'PLANNER_RESPONSE',
+      thinking: 'MORE_THINKING_NOISE',
+      content: fullAssistantText,
+    },
+  ];
+  writeFileSync(join(txDir, 'transcript.jsonl'), `${compactSteps.map((s) => JSON.stringify(s)).join('\n')}\n`, 'utf8');
+  writeFileSync(join(txDir, 'transcript_full.jsonl'), `${fullSteps.map((s) => JSON.stringify(s)).join('\n')}\n`, 'utf8');
+
+  const reg = loadRegistry();
+  reg.threads['thr-077'] = {
+    threadId: 'thr-077',
+    conversationId: workerConvId,
+    workspaceKey: '__test__',
+    title: 'Deep audit',
+    model: 'gemini-4-neon-xhigh',
+    runState: 'RUN_STATE_IDLE',
+    archived: false,
+    lastSummary: 'Short card summary',
+    createdAt: '2026-11-27T01:00:00Z',
+    updatedAt: '2026-11-27T01:00:00Z',
+  };
+  saveRegistry(reg);
+
+  // 1. Default includeFullReport=false keeps response compact
+  const metaOnly = await getThreadDetail({ threadId: 'thr-077', skipSync: true });
+  assert.equal(metaOnly.threadId, 'thr-077');
+  assert.equal(metaOnly.fullReport, undefined);
+
+  // 2. includeFullReport=true hydrates untruncated reply without thinking/tool noise
+  const withFull = await getThreadDetail({ threadId: 'thr-077', includeFullReport: true, skipSync: true });
+  assert.equal(withFull.fullReport, fullAssistantText);
+  assert.equal(withFull.fullReportStepIndex, 2);
+  assert.equal(withFull.fullReportLength, fullAssistantText.length);
+  assert.equal(withFull.fullReportTruncated, false);
+  assert.ok(!withFull.fullReport.includes('SECRET_THINKING_NOISE'));
+  assert.ok(!withFull.fullReport.includes('MORE_THINKING_NOISE'));
+
+  // 3. maxReportChars clips cleanly when explicitly bounded
+  const clipped = await getThreadDetail({
+    threadId: 'thr-077',
+    includeFullReport: true,
+    maxReportChars: 1500,
+    skipSync: true,
+  });
+  assert.equal(clipped.fullReportTruncated, true);
+  assert.equal(clipped.fullReportLength, fullAssistantText.length);
+  assert.ok(clipped.fullReport.includes('maxReportChars=1500'));
+
+  // 4. MCP stdio server exposes includeFullReport and returns unescaped markdown report
+  const mcpPath = fileURLToPath(new URL('../mcp/server.mjs', import.meta.url));
+  const rpcInput = [
+    JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/call',
+      params: { name: 'get_thread_detail', arguments: { threadId: 'thr-077', includeFullReport: true } },
+    }),
+  ].join('\n') + '\n';
+  const rpcRes = spawnSync(process.execPath, [mcpPath], {
+    env: {
+      ...process.env,
+      ANTIGRAVITY_GEMINI_DIR: geminiDir,
+      ANTIGRAVITY_APP_DATA_DIR: appDataDir,
+      ANTIGRAVITY_LS_ADDRESS: '',
+      ANTIGRAVITY_CSRF_TOKEN: '',
+    },
+    input: rpcInput,
+    encoding: 'utf8',
+    timeout: 15000,
+  });
+  assert.equal(rpcRes.status, 0);
+  const rpcMsgs = rpcRes.stdout.trim().split(/\r?\n/).map((l) => JSON.parse(l));
+  const detailTool = rpcMsgs[0].result.tools.find((x) => x.name === 'get_thread_detail');
+  assert.ok(detailTool.inputSchema.properties.includeFullReport);
+  assert.ok(detailTool.inputSchema.properties.maxReportChars);
+  const callResult = rpcMsgs[1].result;
+  assert.equal(callResult.isError, undefined);
+  assert.ok(callResult.content[0].text.includes('FINAL_VERIFIED_FACT'));
+  assert.equal(callResult.structuredContent.fullReport, fullAssistantText);
+});
+
 test('local-hardening static checks: default model inherits/neon-xhigh, dynamic model dropdown, agy-fs guidance, 10s poll, LF endings intact', () => {
   const lsSrc = readFileSync(new URL('../lib/ls-client.mjs', import.meta.url), 'utf8');
   const txSrc = readFileSync(new URL('../lib/transcript.mjs', import.meta.url), 'utf8');
@@ -457,11 +637,14 @@ test('local-hardening static checks: default model inherits/neon-xhigh, dynamic 
 
   assert.match(lsSrc, /export async function listAvailableModels/);
   assert.match(txSrc, /export function extractSessionTelemetry/);
+  assert.match(txSrc, /DEFAULT_COORDINATOR_REPORT_MAX_CHARS\s*=\s*6500/);
   assert.match(storeSrc, /model\s*=\s*'inherit'/);
   assert.match(storeSrc, /'gemini-4-neon-xhigh'/);
+  assert.match(storeSrc, /export async function getThreadDetail/);
   assert.match(storeSrc, /agy-fs\.mjs/);
   assert.match(serverSrc, /Defaults to "inherit"\./);
-  assert.match(hookSrc, /DIRECTIVE_VERSION\s*=\s*8/);
+  assert.match(serverSrc, /includeFullReport/);
+  assert.match(hookSrc, /DIRECTIVE_VERSION\s*=\s*9/);
   assert.match(mainSrc, /'\/api\/models'/);
   assert.match(mainSrc, /},\s*10000\);/);
   assert.match(htmlSrc, /value="gemini-4-neon-xhigh" selected/);

@@ -973,6 +973,14 @@ export function parseThreadTranscript(conversationId, pendingUserMessages = []) 
   };
 }
 
+const SUMMARY_SECTION_HEADING_RE =
+  /(?:^|\n)(#{2,4}\s*(?:Thread Summary|线程总结|核心结论|排查结论|总结)[^\n]*)/gi;
+
+export const DEFAULT_COORDINATOR_REPORT_MAX_CHARS = 6500;
+
+const REPORT_FOLD_MARKER =
+  '\n\n...(中间细节已折叠，如需核查完整末轮报告请调用 `get_thread_detail(threadId, includeFullReport: true)`，勿直接读取原始 `transcript_full.jsonl`；亦可在右侧侧边栏查看)...\n\n';
+
 function buildCardSummary(fullText) {
   const clean = String(fullText || '').trim();
   if (!clean) return '';
@@ -986,13 +994,68 @@ function buildCardSummary(fullText) {
     .slice(0, 320);
 }
 
-function buildCoordinatorReport(fullText, maxChars = 4200) {
+export function buildCoordinatorReport(fullText, maxChars = DEFAULT_COORDINATOR_REPORT_MAX_CHARS) {
   const clean = String(fullText || '').trim();
   if (!clean) return '';
-  if (clean.length <= maxChars) return clean;
-  const headLen = Math.floor(maxChars * 0.45);
-  const tailLen = maxChars - headLen - 40;
-  return `${clean.slice(0, headLen).trim()}\n\n...(中间细节已折叠，可在右侧侧边栏展开该线程查看完整记录)...\n\n${clean.slice(-tailLen).trim()}`;
+  const limit = Math.max(800, Number(maxChars) || DEFAULT_COORDINATOR_REPORT_MAX_CHARS);
+  if (clean.length <= limit) return clean;
+
+  // Prefer keeping the closing `### Thread Summary` (or localized summary heading) section intact
+  let lastSummaryStart = -1;
+  SUMMARY_SECTION_HEADING_RE.lastIndex = 0;
+  let match;
+  while ((match = SUMMARY_SECTION_HEADING_RE.exec(clean)) !== null) {
+    lastSummaryStart = match.index + (match[0].startsWith('\n') ? 1 : 0);
+  }
+
+  if (lastSummaryStart > 0) {
+    const beforeSummary = clean.slice(0, lastSummaryStart).trim();
+    const summaryBlock = clean.slice(lastSummaryStart).trim();
+    if (beforeSummary && summaryBlock) {
+      const availableForBefore = limit - REPORT_FOLD_MARKER.length - summaryBlock.length;
+      if (availableForBefore >= 400) {
+        return `${beforeSummary.slice(0, availableForBefore).trim()}${REPORT_FOLD_MARKER}${summaryBlock}`;
+      }
+      // Extremely large summary section: keep opening context + preserve as much of summary heading/head/tail as fits
+      const beforeCap = Math.min(beforeSummary.length, Math.max(300, Math.floor(limit * 0.2)));
+      const summaryBudget = Math.max(300, limit - REPORT_FOLD_MARKER.length - beforeCap);
+      let keptSummary = summaryBlock;
+      if (summaryBlock.length > summaryBudget) {
+        const innerMarker = '\n\n...(总结中段已折叠)...\n\n';
+        const sHead = Math.floor((summaryBudget - innerMarker.length) * 0.65);
+        const sTail = Math.max(120, summaryBudget - innerMarker.length - sHead);
+        keptSummary = `${summaryBlock.slice(0, sHead).trim()}${innerMarker}${summaryBlock.slice(-sTail).trim()}`;
+      }
+      return `${beforeSummary.slice(0, beforeCap).trim()}${REPORT_FOLD_MARKER}${keptSummary}`;
+    }
+  }
+
+  const budget = Math.max(400, limit - REPORT_FOLD_MARKER.length);
+  const headLen = Math.floor(budget * 0.5);
+  const tailLen = Math.max(200, budget - headLen);
+  return `${clean.slice(0, headLen).trim()}${REPORT_FOLD_MARKER}${clean.slice(-tailLen).trim()}`;
+}
+
+function findLatestStandaloneAssistant(steps) {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const entry = steps[i];
+    if (entry?.type === 'PLANNER_RESPONSE') {
+      const calls = Array.isArray(entry.tool_calls) ? entry.tool_calls : [];
+      const text = typeof entry.content === 'string' ? entry.content.trim() : '';
+      if (text && calls.length === 0) {
+        const fullReport = buildCoordinatorReport(text);
+        return {
+          stepIndex: Number.isInteger(entry.step_index) ? entry.step_index : 0,
+          cardSummary: buildCardSummary(text),
+          fullReport,
+          rawFullText: text,
+          rawFullTextLength: text.length,
+          reportTruncated: text.length > fullReport.length,
+        };
+      }
+    }
+  }
+  return null;
 }
 
 export function extractLatestAssistantText(conversationId, overrideTranscriptPath = '') {
@@ -1001,21 +1064,34 @@ export function extractLatestAssistantText(conversationId, overrideTranscriptPat
     overrideTranscriptPath,
     tailBytes: 160 * 1024,
   });
-  for (let i = steps.length - 1; i >= 0; i--) {
-    const entry = steps[i];
-    if (entry?.type === 'PLANNER_RESPONSE') {
-      const calls = Array.isArray(entry.tool_calls) ? entry.tool_calls : [];
-      const text = typeof entry.content === 'string' ? entry.content.trim() : '';
-      if (text && calls.length === 0) {
-        return {
-          stepIndex: Number.isInteger(entry.step_index) ? entry.step_index : 0,
-          cardSummary: buildCardSummary(text),
-          fullReport: buildCoordinatorReport(text),
-        };
+  let found = findLatestStandaloneAssistant(steps);
+  if (!found) {
+    const path =
+      overrideTranscriptPath && existsSync(overrideTranscriptPath)
+        ? overrideTranscriptPath
+        : getTranscriptPath(conversationId);
+    try {
+      if (path && statSync(path).size > 160 * 1024) {
+        const full = loadTranscriptSteps({
+          conversationId,
+          overrideTranscriptPath,
+          tailBytes: 0,
+        });
+        found = findLatestStandaloneAssistant(full.steps);
       }
+    } catch {
+      // Ignore stat/read errors
     }
   }
-  return { stepIndex: -1, cardSummary: '', fullReport: '' };
+  if (found) return found;
+  return {
+    stepIndex: -1,
+    cardSummary: '',
+    fullReport: '',
+    rawFullText: '',
+    rawFullTextLength: 0,
+    reportTruncated: false,
+  };
 }
 
 export function extractThreadCompletion(conversationId, overrideTranscriptPath = '') {
@@ -1030,31 +1106,29 @@ export function extractThreadCompletion(conversationId, overrideTranscriptPath =
       stepIndex: -1,
       cardSummary: '',
       fullReport: '',
+      rawFullText: '',
+      rawFullTextLength: 0,
+      reportTruncated: false,
       waitingOnBackgroundTask: true,
       pendingTaskIds: pendingTasks.map((x) => x.taskId),
     };
   }
 
-  for (let i = steps.length - 1; i >= 0; i--) {
-    const entry = steps[i];
-    if (entry?.type === 'PLANNER_RESPONSE') {
-      const calls = Array.isArray(entry.tool_calls) ? entry.tool_calls : [];
-      const text = typeof entry.content === 'string' ? entry.content.trim() : '';
-      if (text && calls.length === 0) {
-        return {
-          stepIndex: Number.isInteger(entry.step_index) ? entry.step_index : 0,
-          cardSummary: buildCardSummary(text),
-          fullReport: buildCoordinatorReport(text),
-          waitingOnBackgroundTask: false,
-          pendingTaskIds: [],
-        };
-      }
-    }
+  const found = findLatestStandaloneAssistant(steps);
+  if (found) {
+    return {
+      ...found,
+      waitingOnBackgroundTask: false,
+      pendingTaskIds: [],
+    };
   }
   return {
     stepIndex: -1,
     cardSummary: '',
     fullReport: '',
+    rawFullText: '',
+    rawFullTextLength: 0,
+    reportTruncated: false,
     waitingOnBackgroundTask: false,
     pendingTaskIds: [],
   };

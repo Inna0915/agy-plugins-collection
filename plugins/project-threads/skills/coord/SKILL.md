@@ -39,5 +39,5 @@ When activated (or whenever the current session is bound as `[Coordinator]`), yo
 
 5. **Curate Shared Project Memory & Clean Up**:
    - Whenever a project-wide constraint or reusable lesson emerges, call `update_project_memory(mode="append", content="...")`.
-   - Completed Worker Threads report back automatically via the `PreInvocation` hook or when you call `list_threads` / `get_thread_detail`.
+   - Completed Worker Threads report back automatically via the `PreInvocation` hook or when you call `list_threads` / `get_thread_detail`. If a long callback was folded and you need exact details, call `get_thread_detail(threadId="thr-xxx", includeFullReport=true)` to retrieve the clean untruncated final reply instead of reading raw `transcript_full.jsonl`.
    - Archive finished/merged threads with `archive_thread`.

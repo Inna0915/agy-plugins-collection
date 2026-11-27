@@ -2485,12 +2485,17 @@ export async function syncCompletionToCoordinator({
       (nextGit?.dirtyCount ? ` | Uncommitted files: ${nextGit.dirtyCount}` : '')
     : 'Read-only shared workspace inspection';
 
+  const reportStatusLine = completion.reportTruncated
+    ? `- **Report Status**: Folded (${completion.rawFullTextLength} chars → ${reportBody.length} chars; \`### Thread Summary\` preserved). If exact folded details are needed, call \`get_thread_detail(threadId: "${t.threadId}", includeFullReport: true)\` — do NOT read raw \`transcript_full.jsonl\`.`
+    : '';
+
   const callbackMsg = [
     `[THREAD_COMPLETION_SYNC] Worker thread \`${t.threadId}\` has finished execution (automated plugin callback — do NOT call dispatch_thread to spawn a duplicate thread for this callback):`,
     '',
     `- **Thread ID**: \`${t.threadId}\` ([View Full Thread](conversation://${t.conversationId}))`,
     `- **Task Title**: ${t.title}`,
     `- **Mode / Branch**: ${gitMeta}`,
+    ...(reportStatusLine ? [reportStatusLine] : []),
     '',
     '### Worker Thread Final Report',
     reportBody,
@@ -2645,6 +2650,45 @@ export async function markThreadRead({ threadId }) {
     waitingReason: t.waitingReason,
     viewedAt: t.viewedAt || '',
     thread: t,
+  };
+}
+
+export async function getThreadDetail({
+  threadId,
+  includeFullReport = false,
+  maxReportChars = 30000,
+  skipSync = false,
+} = {}) {
+  if (!threadId) {
+    throw new Error('`threadId` is required.');
+  }
+  if (!skipSync) {
+    await syncThreads({ includeArchived: true, allWorkspaces: true });
+  }
+  const reg = loadRegistry();
+  const t =
+    reg.threads[threadId] ||
+    Object.values(reg.threads).find((x) => x.conversationId === threadId);
+  if (!t) return null;
+
+  if (!includeFullReport) {
+    return t;
+  }
+
+  const latest = extractLatestAssistantText(t.conversationId);
+  const raw = latest.rawFullText || '';
+  const cap = Math.min(80000, Math.max(1000, Number(maxReportChars) || 30000));
+  const fullReportTruncated = raw.length > cap;
+  const fullReport = fullReportTruncated
+    ? `${raw.slice(0, cap).trim()}\n\n...(已按 maxReportChars=${cap} 截断，原文共 ${raw.length} 字符)...`
+    : raw;
+
+  return {
+    ...t,
+    fullReport,
+    fullReportStepIndex: latest.stepIndex,
+    fullReportLength: raw.length,
+    fullReportTruncated,
   };
 }
 

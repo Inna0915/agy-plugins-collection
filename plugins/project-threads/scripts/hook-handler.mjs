@@ -8,7 +8,7 @@ import {
 } from '../lib/store.mjs';
 import { extractThreadCompletion } from '../lib/transcript.mjs';
 
-const DIRECTIVE_VERSION = 8;
+const DIRECTIVE_VERSION = 9;
 const LEADING_SLASH_COORD_RE = /^\s*\/coord(?=$|[\s:：，,。!?！？])/i;
 
 function readStdin() {
@@ -55,7 +55,7 @@ function buildCoordinatorDirective(coord) {
     '   - **3–5 concise takeaway bullets**: Summarize only root cause, key changes/findings, and any decision needed from the user. Do NOT dump long logs or large tables into the Coordinator session.',
     `   - **Trailing divider**: End the card with \`---\` (and if cross-cutting project conventions emerged, call \`update_project_memory\` passing \`coordinatorId: ${JSON.stringify(cid)}\`, \`workspacePath: ${JSON.stringify(repo)}\`).`,
     '   - If a callback duplicates an already-reported conclusion, acknowledge briefly in one line or stay concise without exposing internal dedup metadata. **NEVER call `dispatch_thread` again in response to a completion sync!**',
-    `4. To check thread status, steer an existing thread, or archive finished work, call \`list_threads\` (always pass \`coordinatorId: ${JSON.stringify(cid)}\`, \`workspacePath: ${JSON.stringify(repo)}\`), \`get_thread_detail\`, \`send_thread_message\`, or \`archive_thread\`.`,
+    `4. To check thread status, inspect an exact folded report, steer an existing thread, or archive finished work, call \`list_threads\` (always pass \`coordinatorId: ${JSON.stringify(cid)}\`, \`workspacePath: ${JSON.stringify(repo)}\`), \`get_thread_detail\` (pass \`includeFullReport: true\` when you need the complete untruncated final reply instead of reading raw \`transcript_full.jsonl\`), \`send_thread_message\`, or \`archive_thread\`.`,
   ].join('\n');
 }
 

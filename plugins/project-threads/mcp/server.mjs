@@ -2,8 +2,8 @@ import { resolveLsEndpoint } from '../lib/ls-client.mjs';
 import {
   archiveThread,
   dispatchThread,
+  getThreadDetail,
   initCoordinator,
-  loadRegistry,
   readProjectMemory,
   resolveProjectScope,
   sendThreadMessage,
@@ -138,13 +138,24 @@ const TOOLS = [
   },
   {
     name: 'get_thread_detail',
-    description: 'Inspect full metadata, Git status, and latest completion summary of a specific Worker Thread by threadId (e.g. thr-001) or conversationId.',
+    description:
+      'Inspect metadata, Git status, and latest summary of a specific Worker Thread by threadId (e.g. thr-001) or conversationId. Set includeFullReport=true to fetch the complete untruncated final assistant reply as clean plain text (avoiding raw transcript_full.jsonl reads).',
     inputSchema: {
       type: 'object',
       properties: {
         threadId: {
           type: 'string',
           description: 'Thread ID (e.g., "thr-001") or Antigravity conversation UUID.',
+        },
+        includeFullReport: {
+          type: 'boolean',
+          description:
+            'When true, appends the complete untruncated latest final assistant reply (without thinking or tool-call JSONL noise) so the Coordinator can verify details omitted from folded callbacks. Default: false.',
+        },
+        maxReportChars: {
+          type: 'integer',
+          description:
+            'Optional max character limit for fullReport when includeFullReport=true (clamped to 1000..80000, default: 30000).',
         },
       },
       required: ['threadId'],
@@ -319,20 +330,43 @@ async function handleToolCall(name, args = {}) {
     }
 
     case 'get_thread_detail': {
-      await syncThreads({ includeArchived: true, allWorkspaces: true });
-      const reg = loadRegistry();
-      const t =
-        reg.threads[args.threadId] ||
-        Object.values(reg.threads).find((x) => x.conversationId === args.threadId);
-      if (!t) {
+      const includeFullReport = Boolean(args.includeFullReport);
+      const detail = await getThreadDetail({
+        threadId: args.threadId,
+        includeFullReport,
+        maxReportChars: args.maxReportChars,
+      });
+      if (!detail) {
         return {
           isError: true,
           content: [{ type: 'text', text: `Thread not found: ${args.threadId}` }],
         };
       }
+      if (!includeFullReport) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify(detail, null, 2) }],
+          structuredContent: detail,
+        };
+      }
+      const {
+        fullReport,
+        fullReportStepIndex,
+        fullReportLength,
+        fullReportTruncated,
+        ...metaOnly
+      } = detail;
+      const metaText = JSON.stringify(metaOnly, null, 2);
+      const reportBlock = fullReport
+        ? [
+            '---',
+            `### Worker Thread Full Final Report (step ${fullReportStepIndex}, ${fullReportLength} chars${fullReportTruncated ? ', clipped' : ', untruncated'})`,
+            '',
+            fullReport,
+          ].join('\n')
+        : '---\n(No standalone final assistant report found in transcript yet.)';
       return {
-        content: [{ type: 'text', text: JSON.stringify(t, null, 2) }],
-        structuredContent: t,
+        content: [{ type: 'text', text: `${metaText}\n\n${reportBlock}` }],
+        structuredContent: detail,
       };
     }
 
