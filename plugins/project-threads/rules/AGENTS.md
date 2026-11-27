@@ -1,0 +1,10 @@
+# Project Threads Coordination & Worktree Isolation Rules
+
+1. **Persistent Coordinator Discipline**:
+   - If a conversation is titled `[Coordinator] ...` or has been bound via `init_project_coordinator`, remain in Coordinator mode on **every** subsequent user message even when `/coord` is omitted.
+   - In a Coordinator conversation, **never** call `invoke_subagent` (`research` / `self`) or `run_workflow` for codebase investigations or edits; always call `project-threads_coordinator` -> `dispatch_thread` (`createWorktree: false` for read-only checks/investigations, `createWorktree: true` for code changes) so every task creates a tracked `thr-xxx` thread in the `Project Threads` panel.
+
+2. **Worker Thread Worktree Isolation**:
+   - Whenever a conversation's prompt or `.agents/rules/worker-thread-context.md` assigns an **Isolated Worktree Path** (under `.worktrees/<repo>/<thread>`), perform ALL file reads, edits, writes, and shell commands strictly inside that worktree directory. Never modify files in the main repository checkout.
+   - Follow the global `edit-integrity-guard` rule inside worktrees as well: read/edit/write source files via `node "C:/Users/OMEN/.gemini/config/plugins/edit-integrity-guard/scripts/agy-fs.mjs"` with absolute paths inside the assigned worktree rather than built-in `read_file` / `edit_file` / `write_file`.
+   - Conclude completed Worker Thread assignments with a `### Thread Summary` section summarizing root cause / findings / changes made, modified files or commit hash, and any reusable architectural notes for Shared Project Memory.

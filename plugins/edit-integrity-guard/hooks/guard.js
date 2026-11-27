@@ -219,12 +219,30 @@ function getWorkspaceRoots(ctx) {
   return roots;
 }
 
+function isGitWorktreePath(normPath, roots) {
+  if (!normPath) return false;
+  if (/(?:^|\/)\.worktrees\/[^/]+(?:\/|$)/.test(normPath)) {
+    return true;
+  }
+  for (const r of roots) {
+    const parent = path.posix.dirname(r);
+    const base = path.posix.basename(r);
+    if (!parent || !base) continue;
+    const siblingWtRoot = parent === '/' ? `/.worktrees/${base}` : `${parent}/.worktrees/${base}`;
+    if (normPath === siblingWtRoot || normPath.startsWith(siblingWtRoot + '/')) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function isWorkspaceFile(targetPath, ctx) {
   if (!targetPath || typeof targetPath !== 'string') return false;
   const baseDir = (ctx && (ctx.cwd || (Array.isArray(ctx.workspacePaths) && ctx.workspacePaths[0]))) || '';
   const norm = normalizePath(targetPath, baseDir);
   if (!norm || isExcludedPath(norm, ctx)) return false;
   const roots = getWorkspaceRoots(ctx);
+  if (isGitWorktreePath(norm, roots)) return true;
   if (roots.length === 0) return false;
   return roots.some((r) => norm === r || norm.startsWith(r + '/'));
 }

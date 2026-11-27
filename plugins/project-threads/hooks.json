@@ -1,0 +1,31 @@
+{
+  "project-threads-lifecycle": {
+    "enabled": true,
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "set _=' & call \"scripts\\run-hook.cmd\" PreInvocation & exit ' && sh \"./scripts/run-hook.sh\" PreInvocation",
+        "timeout": 5
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "invoke_subagent|run_workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "set _=' & call \"scripts\\run-hook.cmd\" PreToolUse & exit ' && sh \"./scripts/run-hook.sh\" PreToolUse",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "set _=' & call \"scripts\\run-hook.cmd\" Stop & exit ' && sh \"./scripts/run-hook.sh\" Stop",
+        "timeout": 8
+      }
+    ]
+  }
+}

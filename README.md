@@ -10,6 +10,7 @@ Antigravity（AGY 2.0）本机自研与定制插件的源码集合，目录结�
 | `plugins/agy-tps-monitor` | 3.0.0 | Sidecar Web UI + Hooks + CLI | 右侧栏当前会话 TPS 速率、Token 消耗、1M 上下文点阵与缓存保鲜监控 | 本地读取 `~/.gemini/antigravity/` 会话与 transcript |
 | `plugins/edit-integrity-guard` | 2.0.0 | PreToolUse Hook + Rules + Script | 兼容企业透明加密（+4096B 密文头）与 BOM/CRLF 保护的 `agy-fs.mjs` 单一写盘通道 | `hooks/guard.js` 内白名单引用了 `dsh-plugins-collection/skills/*` 派单脚本 |
 | `plugins/jira-confluence-flow` | 1.0.0 | Skills (12) + MCP | 聚合 9 个 Jira Skill、3 个 Confluence Skill 与 `jira_flow` / `confluence_flow` MCP | `mcp_config.json` 指向 `D:/dev/vscode/{jira-flow,confluence-flow}/dist/cli.js`（软链到 `dsh-plugins-collection`） |
+| `plugins/project-threads` | 1.0.3 | Sidecar Web UI + MCP + Hooks + Skill + Rules | 基于 `ShawnJim/antigravity-project-threads`（MIT）定制增强：常驻 `/coord` 总控 + 并发子线程看板；新增总控模型精确继承与 27 模型动态下拉框（默认 `Gemini 4 Neon (XHigh)`）、总控/线程卡片 Token(M)/压缩线/压缩次数遥测、内联预览默认折叠思考轨迹、`agy-fs.mjs` 对齐、Git 轮询缓存降频与主仓记忆自动 exclude | 配套 `edit-integrity-guard`（`.worktrees/` 拦截）与本机 `ConversationService` / `agentapi` |
 | `plugins/task-progress-brief` | 2.2.0 | Rules | 全局结对搭档叙事与按需 Generative UI 规范 | 纯 `rules/AGENTS.md`，无运行时依赖 |
 | `plugins/worker-dispatch` | 1.0.0 | Skills (3) | `codex-worker`、`dsh-worker` 与 `worker-orchestrator` 多引擎派单与严审闭环 | 本机线上安装目录中 3 个 `scripts`/`config` 目录当前以 junction 指向 `dsh-plugins-collection/skills/`，本仓已按实体文件完整收录 |
 

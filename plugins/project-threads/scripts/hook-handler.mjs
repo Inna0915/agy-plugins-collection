@@ -1,0 +1,282 @@
+import { resolveLsEndpoint } from '../lib/ls-client.mjs';
+import {
+  initCoordinator,
+  inspectWorktreeGit,
+  loadRegistry,
+  saveRegistry,
+  syncCompletionToCoordinator,
+} from '../lib/store.mjs';
+import { extractThreadCompletion } from '../lib/transcript.mjs';
+
+const DIRECTIVE_VERSION = 8;
+const LEADING_SLASH_COORD_RE = /^\s*\/coord(?=$|[\s:：，,。!?！？])/i;
+
+function readStdin() {
+  return new Promise((resolve) => {
+    let data = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk) => {
+      data += chunk;
+    });
+    process.stdin.on('end', () => resolve(data));
+    process.stdin.on('error', () => resolve(data));
+  });
+}
+
+function extractDirectUserMessage(rawInput) {
+  const s = String(rawInput || '');
+  if (!s) return '';
+  const reqMatches = [...s.matchAll(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/gi)];
+  if (reqMatches.length > 0) {
+    return reqMatches[reqMatches.length - 1][1].trim();
+  }
+  return s
+    .replace(/<CONTEXT_SUMMARY>[\s\S]*?<\/CONTEXT_SUMMARY>/gi, '')
+    .replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/gi, '')
+    .trim();
+}
+
+function buildCoordinatorDirective(coord) {
+  const repo = coord.repoRoot || coord.workspacePath || '';
+  const cid = coord.conversationId || '';
+  const scopeLabel = repo || coord.title || coord.key || 'Current Project';
+  const hasRepo = Boolean(repo);
+  return [
+    `[Project Coordinator Standing Protocol — Bound Scope: ${scopeLabel}]`,
+    'This conversation is permanently bound as the ongoing Project Coordinator. Even when subsequent user messages omit the `/coord` prefix, you MUST continue operating strictly in Coordinator mode (always reply to the user in the language they use):',
+    '1. **NEVER call `invoke_subagent` (e.g. `research` / `self`) or `run_workflow`** for project tasks — ephemeral subagents do not appear on the Project Threads board! Likewise, do NOT read large source files or edit application code directly inside this Coordinator session.',
+    '2. **Dispatch EVERY new task as a Project Thread**: Whether the user asks for code changes, bug fixes, or a read-only code/logic investigation, call `call_mcp_tool` with `ServerName: "project-threads_coordinator"`, `ToolName: "dispatch_thread"` to create a tracked `thr-xxx` thread:',
+    `   - **Read-only investigation / logic check / non-repo project task**: Pass \`createWorktree: false\`, \`coordinatorId: ${JSON.stringify(cid)}\`, \`workspacePath: ${JSON.stringify(repo)}\` (omit \`model\` or pass \`model: "inherit"\` so the worker follows the Coordinator's active model or defaults to \`gemini-4-neon-xhigh\`, unless the user explicitly asks for another model).`,
+    hasRepo
+      ? `   - **Code changes / scripts / bug fixes**: Pass \`createWorktree: true\`, \`coordinatorId: ${JSON.stringify(cid)}\`, \`workspacePath: ${JSON.stringify(repo)}\` (automatically creates an isolated Git worktree and branch).`
+      : `   - **Note**: No local Git repository is bound to this scope; keep \`createWorktree: false\` and always pass \`coordinatorId: ${JSON.stringify(cid)}\`.`,
+    '3. **Format `[THREAD_COMPLETION_SYNC]` callbacks as segmented summary cards**: When a background worker thread finishes, the system delivers a `[THREAD_COMPLETION_SYNC]` message to this session. Keep multiple callbacks cleanly separated by following this exact card layout (localized to the user\'s language):',
+    '   - **Blockquote header banner**: `> **✅ [thr-xxx] <Task Title> · Completed** ([View Thread](conversation://<threadConvId>))`',
+    '   - **3–5 concise takeaway bullets**: Summarize only root cause, key changes/findings, and any decision needed from the user. Do NOT dump long logs or large tables into the Coordinator session.',
+    `   - **Trailing divider**: End the card with \`---\` (and if cross-cutting project conventions emerged, call \`update_project_memory\` passing \`coordinatorId: ${JSON.stringify(cid)}\`, \`workspacePath: ${JSON.stringify(repo)}\`).`,
+    '   - If a callback duplicates an already-reported conclusion, acknowledge briefly in one line or stay concise without exposing internal dedup metadata. **NEVER call `dispatch_thread` again in response to a completion sync!**',
+    `4. To check thread status, steer an existing thread, or archive finished work, call \`list_threads\` (always pass \`coordinatorId: ${JSON.stringify(cid)}\`, \`workspacePath: ${JSON.stringify(repo)}\`), \`get_thread_detail\`, \`send_thread_message\`, or \`archive_thread\`.`,
+  ].join('\n');
+}
+
+function buildWorkerIsolationReminder(worker) {
+  return [
+    `[Worker Thread Isolation Reminder — ${worker.threadId}]`,
+    `- **Assigned Worktree Path**: \`${worker.worktreePath}\``,
+    worker.branch ? `- **Assigned Git Branch**: \`${worker.branch}\`` : '',
+    worker.repoRoot ? `- **Main Repo Root (DO NOT MODIFY DIRECTLY)**: \`${worker.repoRoot}\`` : '',
+    '- Keep ALL shell commands (`cd` into the worktree path) and ALL source file reads/edits/writes strictly inside the Assigned Worktree Path above via `node "C:/Users/OMEN/.gemini/config/plugins/edit-integrity-guard/scripts/agy-fs.mjs"`.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+async function main() {
+  resolveLsEndpoint();
+  const eventArg = process.argv[2] || '';
+  const raw = await readStdin();
+  let input = {};
+  try {
+    input = raw ? JSON.parse(raw) : {};
+  } catch {
+    input = {};
+  }
+
+  const event = input.hookEventName || eventArg;
+  const convId = input.conversationId || '';
+  if (!convId) {
+    if (event === 'Stop') process.stdout.write('{"decision":"stop"}\n');
+    else if (event === 'PreToolUse') process.stdout.write('{"decision":"allow"}\n');
+    else process.stdout.write('{}\n');
+    return;
+  }
+
+  let reg = loadRegistry();
+
+  if (event === 'PreToolUse') {
+    const coord = Object.values(reg.coordinators).find((c) => c.conversationId === convId);
+    if (!coord) {
+      process.stdout.write('{"decision":"allow"}\n');
+      return;
+    }
+
+    const toolName = input?.toolCall?.name || '';
+    const subType = input?.toolCall?.args?.TypeName || '';
+    if (
+      (toolName === 'invoke_subagent' && subType !== 'browser' && subType !== 'image-generator') ||
+      toolName === 'run_workflow'
+    ) {
+      const repo = coord.repoRoot || coord.workspacePath || '';
+      const cid = coord.conversationId || '';
+      process.stdout.write(
+        `${JSON.stringify({
+          decision: 'deny',
+          reason:
+            `This conversation is bound as the Project Coordinator; do not use ${toolName} to delegate project tasks (ephemeral subagents are invisible on the Project Threads board). ` +
+            `Instead, call call_mcp_tool with ServerName="project-threads_coordinator", ToolName="dispatch_thread" to create a tracked thr-xxx thread ` +
+            `(pass createWorktree: false, coordinatorId: ${JSON.stringify(cid)}, workspacePath: ${JSON.stringify(repo)} for read-only checks, or createWorktree: true for Git repository code changes).`,
+        })}\n`,
+      );
+      return;
+    }
+
+    process.stdout.write('{"decision":"allow"}\n');
+    return;
+  }
+
+  if (event === 'Stop') {
+    const thread = Object.values(reg.threads).find((t) => t.conversationId === convId && !t.archived);
+    if (thread) {
+      const reason = input.terminationReason || 'NO_TOOL_CALL';
+      if (reason !== 'USER_CANCELED') {
+        try {
+          await syncCompletionToCoordinator({
+            threadId: thread.threadId,
+            transcriptPath: input.transcriptPath || '',
+            force: false,
+            timeoutMs: 6000,
+          });
+        } catch {
+          // Fallback: still persist local summary & state if LS/agentapi was unreachable (unless waiting on bg task)
+          const comp = extractThreadCompletion(convId, input.transcriptPath || '');
+          if (!comp.waitingOnBackgroundTask) {
+            if (comp.cardSummary) thread.lastSummary = comp.cardSummary;
+            thread.runState = 'RUN_STATE_IDLE';
+            thread.lastCompletedAt = new Date().toISOString();
+            thread.updatedAt = thread.lastCompletedAt;
+            if (thread.worktreePath) {
+              thread.git = await inspectWorktreeGit(thread.worktreePath, thread.baseRef, { force: true });
+            }
+            saveRegistry(reg);
+          }
+        }
+      }
+    }
+    process.stdout.write('{"decision":"stop"}\n');
+    return;
+  }
+
+  if (event === 'PreInvocation') {
+    let coord = Object.values(reg.coordinators).find((c) => c.conversationId === convId);
+
+    // Auto-bootstrap on the VERY FIRST `/coord` turn before `init_project_coordinator` MCP tool runs
+    const directUserText = extractDirectUserMessage(input.lastUserInput);
+    if (!coord && LEADING_SLASH_COORD_RE.test(directUserText)) {
+      const isWorkerThread = Object.values(reg.threads || {}).some(
+        (t) => t?.conversationId === convId,
+      );
+      if (!isWorkerThread) {
+        const primaryWorkspace =
+          (Array.isArray(input.workspacePaths) && input.workspacePaths[0]) || input.cwd || '';
+        try {
+          await initCoordinator({
+            workspacePath: primaryWorkspace,
+            conversationId: convId,
+          });
+          reg = loadRegistry();
+          coord = Object.values(reg.coordinators).find((c) => c.conversationId === convId);
+        } catch {
+          // Non-fatal; MCP init_project_coordinator will still bind on tool execution
+        }
+      }
+    }
+
+    if (!coord) {
+      const worker = Object.values(reg.threads || {}).find(
+        (t) => !t?.archived && t?.conversationId === convId && t?.worktreePath,
+      );
+      if (worker) {
+        const stepCount = Number(input.initialNumSteps) || 0;
+        const compacted = Boolean(worker.lastStepCount && stepCount > 0 && stepCount < worker.lastStepCount);
+        if (stepCount > 0 && stepCount !== worker.lastStepCount) {
+          worker.lastStepCount = stepCount;
+          saveRegistry(reg);
+        }
+        if (compacted) {
+          process.stdout.write(
+            `${JSON.stringify({
+              injectSteps: [
+                {
+                  systemMessage: {
+                    systemMessage: buildWorkerIsolationReminder(worker),
+                  },
+                },
+              ],
+            })}\n`,
+          );
+          return;
+        }
+      }
+      process.stdout.write('{}\n');
+      return;
+    }
+
+    const messages = [];
+    let dirty = false;
+    const stepCount = Number(input.initialNumSteps) || 0;
+    const compacted = coord.lastStepCount && stepCount > 0 && stepCount < coord.lastStepCount;
+
+    // Push ONLY once on initial Coordinator bind (or after /compact) to prevent context bloat
+    if (coord.directiveVersion !== DIRECTIVE_VERSION || compacted) {
+      messages.push(buildCoordinatorDirective(coord));
+      coord.directiveVersion = DIRECTIVE_VERSION;
+      dirty = true;
+    }
+    if (stepCount > 0 && stepCount !== coord.lastStepCount) {
+      coord.lastStepCount = stepCount;
+      dirty = true;
+    }
+
+    // Fallback injection ONLY for threads that have NEVER been pushed/notified and are not waiting on a background task
+    const newlyFinished = Object.values(reg.threads).filter((t) => {
+      if (t.archived || t.coordinatorId !== convId || !t.lastCompletedAt) return false;
+      if (t.pushedToCoordinatorAt || t.notifiedCoordinatorAt) return false;
+      if (t.runState === 'RUN_STATE_IDLE' || t.runState !== 'RUN_STATE_RUNNING') {
+        const comp = extractThreadCompletion(t.conversationId);
+        return !comp.waitingOnBackgroundTask;
+      }
+      return false;
+    });
+
+    if (newlyFinished.length > 0) {
+      const now = new Date().toISOString();
+      const bullets = newlyFinished.map((t) => {
+        t.notifiedCoordinatorAt = now;
+        const gitNote = t.git?.lastCommit ? ` | Latest commit: \`${t.git.lastCommit}\`` : '';
+        const sum = t.lastSummary ? `\n  > ${t.lastSummary.replace(/\r?\n+/g, ' ').slice(0, 260)}` : '';
+        return `- **\`${t.threadId}\`** ${t.title} (\`${t.branch || 'read-only'}\`)${gitNote}${sum}`;
+      });
+      messages.push(
+        [
+          '[Project Threads Update] The following background worker threads have completed:',
+          ...bullets,
+        ].join('\n'),
+      );
+      dirty = true;
+    }
+
+    if (dirty) saveRegistry(reg);
+
+    if (!messages.length) {
+      process.stdout.write('{}\n');
+      return;
+    }
+
+    process.stdout.write(
+      `${JSON.stringify({
+        injectSteps: messages.map((text) => ({
+          systemMessage: {
+            systemMessage: text,
+          },
+        })),
+      })}\n`,
+    );
+    return;
+  }
+
+  process.stdout.write('{}\n');
+}
+
+main().catch(() => {
+  process.stdout.write('{}\n');
+});
