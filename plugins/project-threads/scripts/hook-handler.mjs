@@ -7,8 +7,9 @@ import {
   syncCompletionToCoordinator,
 } from '../lib/store.mjs';
 import { extractThreadCompletion } from '../lib/transcript.mjs';
+import { extractCodexThreadCompletion, isCodexThread } from '../lib/codex-adapter.mjs';
 
-const DIRECTIVE_VERSION = 9;
+const DIRECTIVE_VERSION = 10;
 const LEADING_SLASH_COORD_RE = /^\s*\/coord(?=$|[\s:：，,。!?！？])/i;
 
 function readStdin() {
@@ -50,6 +51,7 @@ function buildCoordinatorDirective(coord) {
     hasRepo
       ? `   - **Code changes / scripts / bug fixes**: Pass \`createWorktree: true\`, \`coordinatorId: ${JSON.stringify(cid)}\`, \`workspacePath: ${JSON.stringify(repo)}\` (automatically creates an isolated Git worktree and branch).`
       : `   - **Note**: No local Git repository is bound to this scope; keep \`createWorktree: false\` and always pass \`coordinatorId: ${JSON.stringify(cid)}\`.`,
+    `   - **Codex Engine (when user asks to use Codex, cross-review, or double-blind plan)**: Call the same \`dispatch_thread\` with \`engine: "codex"\`, \`taskKind: "implement" | "review" | "plan"\` (plus optional \`effort\`, \`fast\`, \`structuredHandoff\`), \`coordinatorId: ${JSON.stringify(cid)}\`, \`workspacePath: ${JSON.stringify(repo)}\` — do NOT shell out to \`Invoke-CodexTask.ps1\` directly.`,
     '3. **Format `[THREAD_COMPLETION_SYNC]` callbacks as segmented summary cards**: When a background worker thread finishes, the system delivers a `[THREAD_COMPLETION_SYNC]` message to this session. Keep multiple callbacks cleanly separated by following this exact card layout (localized to the user\'s language):',
     '   - **Blockquote header banner**: `> **✅ [thr-xxx] <Task Title> · Completed** ([View Thread](conversation://<threadConvId>))`',
     '   - **3–5 concise takeaway bullets**: Summarize only root cause, key changes/findings, and any decision needed from the user. Do NOT dump long logs or large tables into the Coordinator session.',
@@ -232,7 +234,9 @@ async function main() {
       if (t.archived || t.coordinatorId !== convId || !t.lastCompletedAt) return false;
       if (t.pushedToCoordinatorAt || t.notifiedCoordinatorAt) return false;
       if (t.runState === 'RUN_STATE_IDLE' || t.runState !== 'RUN_STATE_RUNNING') {
-        const comp = extractThreadCompletion(t.conversationId);
+        const comp = isCodexThread(t)
+          ? extractCodexThreadCompletion(t)
+          : extractThreadCompletion(t.conversationId);
         return !comp.waitingOnBackgroundTask;
       }
       return false;

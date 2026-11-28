@@ -31,6 +31,9 @@ When activated (or whenever the current session is bound as `[Coordinator]`), yo
    - **Code Modification / Bugfix / SQL / Unit Tests**:
      - Call `dispatch_thread` with `createWorktree: true`, `workspacePath: "<repoRoot>"`.
      - Automatically creates an isolated Git worktree (`../.worktrees/<repo>/<threadId>-<slug>`) and branch (`thread/<threadId>-<slug>`) so parallel tasks never collide.
+   - **Codex Engine (`engine: "codex"`) — Multi-Engine Dispatch / Reverse Review / Double-Blind Plan**:
+     - Whenever the user asks to delegate implementation, reverse code review, or an independent architecture plan to Codex, call `dispatch_thread` with `engine: "codex"`, `taskKind: "implement" | "review" | "plan"` (plus optional `effort`, `fast`, `structuredHandoff`), and `workspacePath: "<projectDir>"`.
+     - Automatically reuses `codex-worker`'s `Invoke-CodexTask.ps1` (single/multi-repo worktrees for `implement`, hard-locked read-only for `review`/`plan`), streams progress & token/compaction telemetry to the `Project Threads` panel, and syncs conclusions back to the Coordinator automatically.
 
 4. **Check Active Threads & Steer Existing Threads Without Navigating Away**:
    - Call `list_threads` before creating code-editing threads so you don't create overlapping branches on the same files.

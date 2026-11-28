@@ -11,6 +11,7 @@ import {
   getThreadMessages,
   initCoordinator,
   markThreadRead,
+  openExternalThread,
   readProjectMemory,
   resolveAppLocale,
   resolveProjectScope,
@@ -160,6 +161,18 @@ async function handleThreadMarkRead(data = {}) {
 }
 registerDualApi('/api/thread_mark_read', handleThreadMarkRead);
 
+async function handleThreadOpenExternal(data = {}) {
+  try {
+    const res = await openExternalThread({
+      threadId: data.threadId || '',
+    });
+    return { ...res, locale: resolveAppLocale() };
+  } catch (err) {
+    return { ok: false, error: err.message, locale: resolveAppLocale() };
+  }
+}
+registerDualApi('/api/thread_open_external', handleThreadOpenExternal);
+
 async function handleInit(data = {}) {
   try {
     const coord = await initCoordinator({
@@ -189,6 +202,11 @@ async function handleDispatch(data = {}) {
       baseRef: data.baseRef || '',
       model: data.model || 'inherit',
       createWorktree: data.createWorktree !== false && data.createWorktree !== 'false' && data.createWorktree !== '0',
+      engine: data.engine || 'antigravity',
+      taskKind: data.taskKind || 'implement',
+      effort: data.effort || '',
+      fast: parseBool(data.fast, false),
+      structuredHandoff: parseBool(data.structuredHandoff, false),
     });
     return { ok: true, locale: resolveAppLocale(), thread };
   } catch (err) {

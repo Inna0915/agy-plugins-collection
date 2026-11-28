@@ -56,10 +56,18 @@
           </button>
         </div>
         <div class="field">
+          <label id="lbl-f-engine">Engine</label>
+          <div id="f-engine-seg" class="engine-seg" role="radiogroup">
+            <button type="button" class="engine-seg-btn active" data-engine="antigravity" id="btn-eng-agy" aria-checked="true">Antigravity</button>
+            <button type="button" class="engine-seg-btn" data-engine="codex" id="btn-eng-codex" aria-checked="false">Codex</button>
+          </div>
+          <input id="f-engine" type="hidden" value="antigravity">
+        </div>
+        <div class="field">
           <label id="lbl-f-title" for="f-title">Thread title</label>
           <input id="f-title" type="text" autocomplete="off">
         </div>
-        <div class="row2 field">
+        <div id="f-agy-opts" class="row2 field">
           <div>
             <label id="lbl-f-branch" for="f-branch">Git branch (optional)</label>
             <input id="f-branch" type="text" placeholder="thread/thr-xxx-..." autocomplete="off">
@@ -73,6 +81,44 @@
               <option value="flash">Flash</option>
               <option value="flash_lite">Flash Lite</option>
             </select>
+          </div>
+        </div>
+        <div id="f-codex-opts" class="codex-opts" hidden>
+          <div class="row2 field">
+            <div>
+              <label id="lbl-f-codex-kind" for="f-codex-kind">Task kind</label>
+              <select id="f-codex-kind">
+                <option value="implement" selected>Implement (writable)</option>
+                <option value="review">Review (read-only)</option>
+                <option value="plan">Plan (read-only)</option>
+              </select>
+            </div>
+            <div>
+              <label id="lbl-f-codex-effort" for="f-codex-effort">Reasoning effort</label>
+              <select id="f-codex-effort">
+                <option value="" selected>Default (config.toml)</option>
+                <option value="high">high</option>
+                <option value="xhigh">xhigh</option>
+                <option value="max">max</option>
+                <option value="medium">medium</option>
+                <option value="low">low</option>
+                <option value="ultra">ultra</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label id="lbl-f-codex-model" for="f-codex-model">Codex model (optional)</label>
+            <input id="f-codex-model" type="text" placeholder="Default (config.toml)" autocomplete="off">
+          </div>
+          <div class="codex-toggles">
+            <label class="chk">
+              <input id="f-codex-fast" type="checkbox">
+              <span id="lbl-f-codex-fast">Fast tier (-Fast)</span>
+            </label>
+            <label class="chk">
+              <input id="f-codex-handoff" type="checkbox">
+              <span id="lbl-f-codex-handoff">Structured handoff</span>
+            </label>
           </div>
         </div>
         <label class="chk">

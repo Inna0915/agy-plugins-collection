@@ -644,23 +644,31 @@ test('local-hardening static checks: default model inherits/neon-xhigh, dynamic 
   assert.match(storeSrc, /agy-fs\.mjs/);
   assert.match(serverSrc, /Defaults to "inherit"\./);
   assert.match(serverSrc, /includeFullReport/);
-  assert.match(hookSrc, /DIRECTIVE_VERSION\s*=\s*9/);
+  assert.match(serverSrc, /enum:\s*\['antigravity',\s*'codex'\]/);
+  assert.match(hookSrc, /DIRECTIVE_VERSION\s*=\s*10/);
   assert.match(mainSrc, /'\/api\/models'/);
+  assert.match(mainSrc, /'\/api\/thread_open_external'/);
   assert.match(mainSrc, /},\s*10000\);/);
   assert.match(htmlSrc, /value="gemini-4-neon-xhigh" selected/);
   assert.match(htmlSrc, /id="goal-metrics"/);
+  assert.match(htmlSrc, /id="f-engine-seg"/);
   assert.match(appSrc, /\/api\/models/);
+  assert.match(appSrc, /\/api\/thread_open_external/);
   assert.match(appSrc, /renderTelemetryStripInnerHtml/);
+  assert.match(appSrc, /renderEngineBadgeHtml/);
   assert.match(appSrc, /const shouldOpen = openTraceIds\.has\(it\.id\);/);
 
   for (const rel of [
     '../lib/ls-client.mjs',
     '../lib/transcript.mjs',
+    '../lib/codex-adapter.mjs',
     '../lib/store.mjs',
     '../mcp/server.mjs',
     '../scripts/hook-handler.mjs',
+    '../scripts/codex-thread-runner.mjs',
     '../sidecars/threads/main.mjs',
     './local-hardening.test.mjs',
+    './codex-engine.test.mjs',
   ]) {
     const raw = readFileSync(new URL(rel, import.meta.url));
     assert.ok(!raw.includes(Buffer.from('\r')), `${rel} must keep LF line endings`);

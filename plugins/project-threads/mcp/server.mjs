@@ -54,7 +54,7 @@ const TOOLS = [
   {
     name: 'dispatch_thread',
     description:
-      'Spawn an asynchronous, isolated Worker Thread as a background Antigravity conversation via ConversationService inside the same Project. Automatically creates an isolated Git worktree & branch when a Git repository is present (unless createWorktree=false) and injects Shared Project Memory.',
+      'Spawn an asynchronous, isolated Worker Thread inside the same Project (supports engine="antigravity" native conversation or engine="codex" local Codex CLI via codex-worker). Automatically creates an isolated Git worktree & branch when applicable and injects Shared Project Memory.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -66,9 +66,19 @@ const TOOLS = [
           type: 'string',
           description: 'Complete self-contained instructions, context, reproduction steps, and acceptance criteria for the Worker Thread.',
         },
+        engine: {
+          type: 'string',
+          enum: ['antigravity', 'codex'],
+          description: 'Execution engine for this worker thread: "antigravity" (default, native Antigravity session) or "codex" (local Codex CLI with TaskWorktree isolation, read-only review/plan locks, and Codex Desktop integration).',
+        },
+        taskKind: {
+          type: 'string',
+          enum: ['implement', 'review', 'plan'],
+          description: 'Codex engine only: "implement" (default, writable with auto worktree), "review" (hard-locked read-only in-place diff/code review), or "plan" (hard-locked read-only independent architecture plan).',
+        },
         workspacePath: {
           type: 'string',
-          description: 'Absolute path of the main project repository (optional if coordinatorId/conversationId/projectId is provided).',
+          description: 'Absolute path of the main project repository (required for engine="codex"; optional for Antigravity if coordinatorId/conversationId/projectId is provided).',
         },
         coordinatorId: {
           type: 'string',
@@ -84,7 +94,7 @@ const TOOLS = [
         },
         branch: {
           type: 'string',
-          description: 'Optional Git branch name (defaults to thread/<id>-<slug>).',
+          description: 'Optional Git branch name (Antigravity engine; defaults to thread/<id>-<slug>).',
         },
         baseRef: {
           type: 'string',
@@ -92,11 +102,24 @@ const TOOLS = [
         },
         model: {
           type: 'string',
-          description: 'Model ID (e.g. "gemini-4-neon-xhigh"), "inherit" (follow current Coordinator model, fallback to "gemini-4-neon-xhigh"), or tier alias ("pro", "flash", "flash_lite"). Defaults to "inherit".',
+          description: 'Model ID. For Antigravity: e.g. "gemini-4-neon-xhigh", "inherit" (follow current Coordinator model, fallback to "gemini-4-neon-xhigh"), or tier alias ("pro", "flash", "flash_lite"). Defaults to "inherit". For Codex: omit or pass "default" to inherit ~/.codex/config.toml.',
+        },
+        effort: {
+          type: 'string',
+          enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+          description: 'Codex engine only: optional reasoning effort override (omit to inherit ~/.codex/config.toml).',
+        },
+        fast: {
+          type: 'boolean',
+          description: 'Codex engine only: enable priority/fast service tier (-Fast). Default: false.',
+        },
+        structuredHandoff: {
+          type: 'boolean',
+          description: 'Codex engine only: enforce 11-field structured JSON handoff validation (-StructuredHandoff; recommended for review/plan). Default: false.',
         },
         createWorktree: {
           type: 'boolean',
-          description: 'Whether to create an isolated Git worktree for this thread (default: true).',
+          description: 'Whether to create an isolated Git worktree for this thread (default: true; automatically disabled for Codex review/plan).',
         },
       },
       required: ['title', 'taskPrompt'],
@@ -263,7 +286,7 @@ function formatThreadsMarkdown(snapshot) {
     return lines.join('\n');
   }
 
-  lines.push('', '| ID | Status | Thread | Branch / Worktree | Git | Summary |', '|---|---|---|---|---|---|');
+  lines.push('', '| ID | Engine | Status | Thread | Branch / Worktree | Git | Summary |', '|---|---|---|---|---|---|---|');
   for (const t of snapshot.threads) {
     const state = t.archived
       ? 'ARCHIVED'
@@ -272,13 +295,19 @@ function formatThreadsMarkdown(snapshot) {
         : t.runState === 'RUN_STATE_IDLE'
           ? 'IDLE'
           : t.runState;
-    const link = `[${t.title}](conversation://${t.conversationId})`;
+    const isCodex = t.engine === 'codex';
+    const engineLabel = isCodex ? `Codex/${t.codex?.taskKind || 'implement'}` : 'AGY';
+    const link = isCodex
+      ? t.codex?.desktopUrl
+        ? `[${t.title}](${t.codex.desktopUrl})`
+        : t.title
+      : `[${t.title}](conversation://${t.conversationId})`;
     const br = t.branch ? `\`${t.branch}\`` : '-';
     const git = t.git
       ? `+${t.git.aheadCount || 0} commits, ${t.git.dirtyCount || 0} dirty`
       : '-';
     const sum = (t.lastSummary || '').replace(/\r?\n+/g, ' ').slice(0, 90);
-    lines.push(`| \`${t.threadId}\` | **${state}** | ${link} | ${br} | ${git} | ${sum || '-'} |`);
+    lines.push(`| \`${t.threadId}\` | ${engineLabel} | **${state}** | ${link} | ${br} | ${git} | ${sum || '-'} |`);
   }
   return lines.join('\n');
 }
@@ -308,12 +337,21 @@ async function handleToolCall(name, args = {}) {
 
     case 'dispatch_thread': {
       const t = await dispatchThread(args);
+      const isCodex = t.engine === 'codex';
+      const titleLink = isCodex
+        ? t.title
+        : `[${t.title}](conversation://${t.conversationId})`;
       const text = [
-        `Dispatched Worker Thread **\`${t.threadId}\`**: [${t.title}](conversation://${t.conversationId})`,
-        `- Conversation ID: \`${t.conversationId}\``,
+        `Dispatched Worker Thread **\`${t.threadId}\`**: ${titleLink}`,
+        `- Engine: \`${isCodex ? `codex (${t.codex?.taskKind || 'implement'})` : 'antigravity'}\``,
+        !isCodex ? `- Conversation ID: \`${t.conversationId}\`` : `- Codex Task: \`${t.codex?.taskName || ''}\``,
         `- Project Scope: \`${t.workspaceKey}\`${t.projectId ? ` (projectId: \`${t.projectId}\`)` : ''}`,
         `- Model: \`${t.modelDisplayName || t.model}\` | Initial State: \`${t.runState}\``,
-        t.worktreePath ? `- Isolated Git Worktree: \`${t.worktreePath}\`` : '- Git Worktree: (disabled or non-git workspace)',
+        isCodex
+          ? `- Worktree Mode: \`${t.codex?.createWorktree ? 'auto (single or multi-repo)' : 'read-only / in-place'}\``
+          : t.worktreePath
+            ? `- Isolated Git Worktree: \`${t.worktreePath}\``
+            : '- Git Worktree: (disabled or non-git workspace)',
         t.branch ? `- Assigned Branch: \`${t.branch}\` (from \`${t.baseRef}\`)` : '',
       ]
         .filter(Boolean)

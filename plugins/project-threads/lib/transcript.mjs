@@ -981,7 +981,7 @@ export const DEFAULT_COORDINATOR_REPORT_MAX_CHARS = 6500;
 const REPORT_FOLD_MARKER =
   '\n\n...(中间细节已折叠，如需核查完整末轮报告请调用 `get_thread_detail(threadId, includeFullReport: true)`，勿直接读取原始 `transcript_full.jsonl`；亦可在右侧侧边栏查看)...\n\n';
 
-function buildCardSummary(fullText) {
+export function buildCardSummary(fullText) {
   const clean = String(fullText || '').trim();
   if (!clean) return '';
   const summaryMatch = clean.match(/#{2,4}\s*(?:Thread Summary|线程总结|核心结论|排查结论|总结)[^\n]*\n+([\s\S]+)/i);

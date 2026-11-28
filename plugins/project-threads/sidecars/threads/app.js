@@ -221,6 +221,31 @@
       agoTime: (val, unit) => `${val}${unit} ago`,
       loadingChat: 'Loading conversation…',
       emptyChat: 'Waiting for first response…',
+      fEngine: 'Engine',
+      engineAgy: 'Antigravity',
+      engineCodex: 'Codex',
+      engineCodexUnavail: 'Codex (scripts not found)',
+      fCodexKind: 'Task kind',
+      codexKindImpl: 'Implement (writable)',
+      codexKindReview: 'Review (read-only)',
+      codexKindPlan: 'Plan (read-only)',
+      fCodexEffort: 'Reasoning effort',
+      codexDefaultCfg: (val) => (val ? `Default (${val})` : 'Default (config.toml)'),
+      fCodexModel: 'Codex model (optional)',
+      fCodexModelPh: (m) => (m ? `Leave blank for config.toml (${m})` : 'Leave blank for config.toml'),
+      fCodexFast: 'Fast tier (-Fast)',
+      fCodexHandoff: 'Structured handoff',
+      fWtCodexImpl: 'Auto isolated Git worktree (supports single & multi-repo)',
+      fWtCodexReadOnly: 'Read-only in-place mode (review / plan locks no worktree)',
+      actOpenCodex: 'Codex ↗',
+      codexOpenTip: 'Open thread in Codex Desktop',
+      codexOpenedToast: 'Opened in Codex Desktop',
+      codexOpenErrToast: 'Could not launch Codex Desktop',
+      codexRunningInputTip: 'Codex is running this turn — wait until it finishes to send a follow-up',
+      codexRunningComposerPh: 'Codex is running this turn; follow-up unlocks when finished…',
+      roleCodexImpl: 'Codex · Impl',
+      roleCodexReview: 'Codex · Review',
+      roleCodexPlan: 'Codex · Plan',
     },
 
     'zh-CN': {
@@ -428,6 +453,31 @@
       },
       loadingChat: '正在读取会话记录…',
       emptyChat: '正在等待线程响应…',
+      fEngine: '执行引擎',
+      engineAgy: 'Antigravity',
+      engineCodex: 'Codex',
+      engineCodexUnavail: 'Codex（未找到调度脚本）',
+      fCodexKind: '任务类型',
+      codexKindImpl: '实现（可写 · 自动 Worktree）',
+      codexKindReview: '审查（硬锁只读 · 原位）',
+      codexKindPlan: '双盲方案（硬锁只读 · 原位）',
+      fCodexEffort: '思考档位',
+      codexDefaultCfg: (val) => (val ? `默认 (${val})` : '默认 (config.toml)'),
+      fCodexModel: 'Codex 模型（可选）',
+      fCodexModelPh: (m) => (m ? `留空沿用 config.toml (${m})` : '留空沿用 config.toml'),
+      fCodexFast: '高速档位 (-Fast)',
+      fCodexHandoff: '强结构化回执',
+      fWtCodexImpl: '自动创建隔离 Git Worktree（支持单仓与多仓聚合目录）',
+      fWtCodexReadOnly: 'review / plan 硬锁只读，原位检查不建 Worktree',
+      actOpenCodex: 'Codex ↗',
+      codexOpenTip: '在 Codex Desktop 中打开此会话',
+      codexOpenedToast: '已唤起 Codex Desktop',
+      codexOpenErrToast: '无法直接唤起 Codex Desktop',
+      codexRunningInputTip: 'Codex 正在执行本轮，完成后即可发送追问续接',
+      codexRunningComposerPh: 'Codex 正在执行本轮，完成后自动解锁追问续接…',
+      roleCodexImpl: 'Codex · 实现',
+      roleCodexReview: 'Codex · 审查',
+      roleCodexPlan: 'Codex · 方案',
     },
 
     'zh-TW': {
@@ -635,6 +685,31 @@
       },
       loadingChat: '正在讀取會話記錄…',
       emptyChat: '正在等待執行緒回應…',
+      fEngine: '執行引擎',
+      engineAgy: 'Antigravity',
+      engineCodex: 'Codex',
+      engineCodexUnavail: 'Codex（未找到排程腳本）',
+      fCodexKind: '任務類型',
+      codexKindImpl: '實作（可寫 · 自動 Worktree）',
+      codexKindReview: '審查（硬鎖唯讀 · 原位）',
+      codexKindPlan: '雙盲方案（硬鎖唯讀 · 原位）',
+      fCodexEffort: '思考檔位',
+      codexDefaultCfg: (val) => (val ? `預設 (${val})` : '預設 (config.toml)'),
+      fCodexModel: 'Codex 模型（可選）',
+      fCodexModelPh: (m) => (m ? `留空沿用 config.toml (${m})` : '留空沿用 config.toml'),
+      fCodexFast: '高速檔位 (-Fast)',
+      fCodexHandoff: '強結構化回執',
+      fWtCodexImpl: '自動建立隔離 Git Worktree（支援單倉與多倉聚合目錄）',
+      fWtCodexReadOnly: 'review / plan 硬鎖唯讀，原位檢查不建 Worktree',
+      actOpenCodex: 'Codex ↗',
+      codexOpenTip: '在 Codex Desktop 中開啟此會話',
+      codexOpenedToast: '已喚起 Codex Desktop',
+      codexOpenErrToast: '無法直接喚起 Codex Desktop',
+      codexRunningInputTip: 'Codex 正在執行本輪，完成後即可傳送追問續接',
+      codexRunningComposerPh: 'Codex 正在執行本輪，完成後自動解鎖追問續接…',
+      roleCodexImpl: 'Codex · 實作',
+      roleCodexReview: 'Codex · 審查',
+      roleCodexPlan: 'Codex · 方案',
     },
   };
 
@@ -700,7 +775,12 @@
     coordinatorModel: { id: '', label: '' },
     models: [],
     userPicked: false,
+    codex: {
+      available: true,
+      defaults: { model: '', effort: '', serviceTier: '' },
+    },
   };
+  let dispatchEngine = 'antigravity';
 
   // ---------- DOM References ----------
   const elBoardScreen = document.getElementById('board-screen');
@@ -882,7 +962,22 @@
     const isRunning = Boolean(
       openThreadObj && !openThreadObj.archived && openThreadObj.runState === 'RUN_STATE_RUNNING',
     );
+    const isCodex = openThreadObj?.engine === 'codex';
     const t = L();
+    elChatInput.placeholder = isCodex && isRunning ? t.codexRunningComposerPh : t.composerPh;
+
+    if (isCodex && isRunning) {
+      elSendBtn.disabled = true;
+      elSendBtn.classList.remove('ready');
+      elSendBtn.classList.add('running-stop');
+      if (!elSendBtn.querySelector('.stop-sq')) {
+        elSendBtn.innerHTML = '<span class="stop-sq" aria-hidden="true"></span>';
+      }
+      elSendBtn.title = t.codexRunningInputTip;
+      return;
+    }
+
+    elSendBtn.disabled = false;
     if (isRunning && !hasText) {
       elSendBtn.classList.remove('ready');
       elSendBtn.classList.add('running-stop');
@@ -925,12 +1020,44 @@
 
     document.getElementById('lbl-drawer-title').textContent = t.drawerTitle;
     document.getElementById('btn-close-drawer').title = t.closeTip;
+    const engLbl = document.getElementById('lbl-f-engine');
+    if (engLbl) engLbl.textContent = t.fEngine;
+    const btnEngAgy = document.getElementById('btn-eng-agy');
+    if (btnEngAgy) btnEngAgy.textContent = t.engineAgy;
+    const btnEngCodex = document.getElementById('btn-eng-codex');
+    if (btnEngCodex) {
+      btnEngCodex.textContent =
+        modelCatalogState.codex?.available === false ? t.engineCodexUnavail : t.engineCodex;
+    }
+    const kindLbl = document.getElementById('lbl-f-codex-kind');
+    if (kindLbl) kindLbl.textContent = t.fCodexKind;
+    const kindSel = document.getElementById('f-codex-kind');
+    if (kindSel && kindSel.options.length >= 3) {
+      kindSel.options[0].textContent = t.codexKindImpl;
+      kindSel.options[1].textContent = t.codexKindReview;
+      kindSel.options[2].textContent = t.codexKindPlan;
+    }
+    const effLbl = document.getElementById('lbl-f-codex-effort');
+    if (effLbl) effLbl.textContent = t.fCodexEffort;
+    const effSel = document.getElementById('f-codex-effort');
+    if (effSel && effSel.options.length > 0) {
+      effSel.options[0].textContent = t.codexDefaultCfg(modelCatalogState.codex?.defaults?.effort || '');
+    }
+    const cxModelLbl = document.getElementById('lbl-f-codex-model');
+    if (cxModelLbl) cxModelLbl.textContent = t.fCodexModel;
+    const cxModelIn = document.getElementById('f-codex-model');
+    if (cxModelIn) {
+      cxModelIn.placeholder = t.fCodexModelPh(modelCatalogState.codex?.defaults?.model || '');
+    }
+    const cxFastLbl = document.getElementById('lbl-f-codex-fast');
+    if (cxFastLbl) cxFastLbl.textContent = t.fCodexFast;
+    const cxHandoffLbl = document.getElementById('lbl-f-codex-handoff');
+    if (cxHandoffLbl) cxHandoffLbl.textContent = t.fCodexHandoff;
     document.getElementById('lbl-f-title').textContent = t.fTitle;
     document.getElementById('f-title').placeholder = t.fTitlePh;
     document.getElementById('lbl-f-branch').textContent = t.fBranch;
     document.getElementById('lbl-f-model').textContent = t.fModel;
-    const wtChk = document.getElementById('f-wt');
-    document.getElementById('lbl-f-wt').textContent = wtChk.disabled ? t.fWtDisabled : t.fWt;
+    syncDispatchEngineUI();
     document.getElementById('lbl-f-prompt').textContent = t.fPrompt;
     document.getElementById('f-prompt').placeholder = t.fPromptPh;
     const submitBtn = document.getElementById('btn-submit-dispatch');
@@ -963,6 +1090,67 @@
       }
     }
     return changed;
+  }
+
+  function syncDispatchEngineUI() {
+    const t = L();
+    const isCodex = dispatchEngine === 'codex';
+    const agyOpts = document.getElementById('f-agy-opts');
+    const cxOpts = document.getElementById('f-codex-opts');
+    const engIn = document.getElementById('f-engine');
+    if (engIn) engIn.value = dispatchEngine;
+    if (agyOpts) agyOpts.hidden = isCodex;
+    if (cxOpts) cxOpts.hidden = !isCodex;
+
+    document.querySelectorAll('#f-engine-seg .engine-seg-btn').forEach((btn) => {
+      const active = btn.dataset.engine === dispatchEngine;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-checked', active ? 'true' : 'false');
+    });
+
+    const wtChk = document.getElementById('f-wt');
+    const wtLbl = document.getElementById('lbl-f-wt');
+    const branchIn = document.getElementById('f-branch');
+    if (!wtChk || !wtLbl) return;
+
+    if (isCodex) {
+      const kind = document.getElementById('f-codex-kind')?.value || 'implement';
+      const isReadOnly = kind === 'review' || kind === 'plan';
+      if (isReadOnly) {
+        wtChk.checked = false;
+        wtChk.disabled = true;
+        wtLbl.textContent = t.fWtCodexReadOnly;
+      } else {
+        const wasDisabled = wtChk.disabled;
+        wtChk.disabled = false;
+        if (wasDisabled) wtChk.checked = true;
+        wtLbl.textContent = t.fWtCodexImpl;
+      }
+      return;
+    }
+
+    const hasGit = lastSnap ? lastSnap.hasGitRepo !== false : lastHasGitRepo !== false;
+    if (!hasGit) {
+      wtChk.checked = false;
+      wtChk.disabled = true;
+      if (branchIn) {
+        branchIn.value = '';
+        branchIn.disabled = true;
+      }
+      wtLbl.textContent = t.fWtDisabled;
+    } else {
+      wtChk.disabled = false;
+      if (branchIn) branchIn.disabled = false;
+      if (lastHasGitRepo !== true) {
+        wtChk.checked = true;
+      }
+      wtLbl.textContent = t.fWt;
+    }
+  }
+
+  function setDispatchEngine(nextEngine) {
+    dispatchEngine = nextEngine === 'codex' ? 'codex' : 'antigravity';
+    syncDispatchEngineUI();
   }
 
   function renderModelSelectOptions() {
@@ -1026,6 +1214,23 @@
           data.defaultModelLabel || formatModelDisplay(modelCatalogState.defaultModel);
         modelCatalogState.coordinatorModel = data.coordinatorModel || { id: '', label: '' };
         modelCatalogState.models = Array.isArray(data.models) ? data.models : [];
+        if (data.codex) {
+          modelCatalogState.codex = data.codex;
+          const btnEngCodex = document.getElementById('btn-eng-codex');
+          if (btnEngCodex) {
+            btnEngCodex.disabled = data.codex.available === false;
+            btnEngCodex.textContent =
+              data.codex.available === false ? L().engineCodexUnavail : L().engineCodex;
+          }
+          const effSel = document.getElementById('f-codex-effort');
+          if (effSel && effSel.options.length > 0) {
+            effSel.options[0].textContent = L().codexDefaultCfg(data.codex.defaults?.effort || '');
+          }
+          const cxModelIn = document.getElementById('f-codex-model');
+          if (cxModelIn) {
+            cxModelIn.placeholder = L().fCodexModelPh(data.codex.defaults?.model || '');
+          }
+        }
         renderModelSelectOptions();
       }
     } catch {
@@ -1511,6 +1716,35 @@
     }
   }
 
+  async function openCodexDesktop(th) {
+    const t = L();
+    if (!th?.threadId) return;
+    try {
+      const res = await postApi('/api/thread_open_external', '/api/thread_open_external_get', {
+        threadId: th.threadId,
+      });
+      if (res?.ok) {
+        flashToast(t.codexOpenedToast, 'ok', 2200);
+      } else if (th.codex?.desktopUrl) {
+        await copyText(th.codex.desktopUrl, `${t.codexOpenErrToast} (${th.codex.desktopUrl})`);
+      } else {
+        flashToast(res?.error || t.codexOpenErrToast, 'warn', 3200);
+      }
+    } catch {
+      if (th.codex?.desktopUrl) {
+        await copyText(th.codex.desktopUrl, t.codexOpenErrToast);
+      } else {
+        flashToast(t.codexOpenErrToast, 'err', 3200);
+      }
+    }
+  }
+
+  function renderEngineBadgeHtml(th) {
+    if (th?.engine !== 'codex') return '';
+    const kind = th.codex?.taskKind || 'implement';
+    return `<span class="engine-pill codex" title="Codex (${esc(kind)})">Codex · ${esc(kind)}</span>`;
+  }
+
   function popoutThreadToMain(threadId) {
     if (!threadId) return;
     const th = cachedThreads.find((x) => x.threadId === threadId);
@@ -1518,6 +1752,10 @@
     if (th.bucket === 'waiting') {
       optimisticallyMarkThreadIdle(threadId);
       postApi('/api/thread_mark_read', '/api/thread_mark_read_get', { threadId }).catch(() => {});
+    }
+    if (th.engine === 'codex') {
+      openCodexDesktop(th);
+      return;
     }
     if (th.conversationId) {
       popoutToMainCanvas(th.conversationId);
@@ -1870,7 +2108,11 @@
     acts.push(
       `<button type="button" class="row-act" data-action="preview" data-id="${esc(th.threadId)}">${esc(t.actPreview)}</button>`,
     );
-    if (th.conversationId) {
+    if (th.engine === 'codex' && th.codex?.desktopUrl) {
+      acts.push(
+        `<button type="button" class="row-act" data-action="popout" data-id="${esc(th.threadId)}" title="${esc(t.codexOpenTip)}">${ICONS.popout}</button>`,
+      );
+    } else if (th.conversationId) {
       acts.push(
         `<button type="button" class="row-act" data-action="popout" data-id="${esc(th.threadId)}" title="${esc(t.popoutTip)}">${ICONS.popout}</button>`,
       );
@@ -2111,7 +2353,11 @@
     const actions = [
       `<button type="button" class="row-act act-primary" data-action="preview" data-id="${esc(th.threadId)}">${esc(t.actPreview)}</button>`,
     ];
-    if (th.conversationId) {
+    if (th.engine === 'codex' && th.codex?.desktopUrl) {
+      actions.push(
+        `<button type="button" class="row-act" data-action="popout" data-id="${esc(th.threadId)}" title="${esc(t.codexOpenTip)}">${esc(t.actOpenCodex)}</button>`,
+      );
+    } else if (th.conversationId) {
       actions.push(
         `<button type="button" class="row-act" data-action="popout" data-id="${esc(th.threadId)}" title="${esc(t.popoutTip)}">${esc(t.actPopoutMain)}</button>`,
       );
@@ -2133,8 +2379,12 @@
       `<button type="button" class="row-act" data-action="archive" data-id="${esc(th.threadId)}" data-wt="${th.worktreePath ? '1' : '0'}">${esc(t.actArchive)}</button>`,
     );
 
-    const modelLabel = formatModelDisplay(th.modelDisplayName || th.resolvedModel || th.model);
-    const modelChip = `<span class="o2-wchips"><span class="o2-wchip" title="${esc(modelLabel)}">${esc(modelLabel)}</span></span>`;
+    const modelLabel =
+      th.engine === 'codex'
+        ? th.modelDisplayName || th.resolvedModel || th.model || 'Codex'
+        : formatModelDisplay(th.modelDisplayName || th.resolvedModel || th.model);
+    const engineBadge = renderEngineBadgeHtml(th);
+    const modelChip = `<span class="o2-wchips">${engineBadge}<span class="o2-wchip" title="${esc(modelLabel)}">${esc(modelLabel)}</span></span>`;
     const cardCls = `o2-th ${stateCls}${isOpen ? ' open' : ''}${isActiveMain ? ' active-main' : ''}`;
 
     return `
@@ -2339,11 +2589,15 @@
             <span>${esc(t.actCopyPath)}</span>
           </button>
           ${
-            th.conversationId
-              ? `<button type="button" class="row-act" data-action="popout" data-id="${esc(th.threadId)}" title="${esc(t.popoutTip)}">
-                  <span>${esc(t.actPopoutMain)}</span>
+            th.engine === 'codex' && th.codex?.desktopUrl
+              ? `<button type="button" class="row-act" data-action="popout" data-id="${esc(th.threadId)}" title="${esc(t.codexOpenTip)}">
+                  <span>${esc(t.actOpenCodex)}</span>
                 </button>`
-              : ''
+              : th.conversationId
+                ? `<button type="button" class="row-act" data-action="popout" data-id="${esc(th.threadId)}" title="${esc(t.popoutTip)}">
+                    <span>${esc(t.actPopoutMain)}</span>
+                  </button>`
+                : ''
           }
           <button type="button" class="row-act act-primary" data-action="open-wt" data-id="${esc(th.threadId)}">
             <span>${esc(t.actOpenThread)}</span>
@@ -2369,24 +2623,10 @@
         : '';
     const projName = folderProj || String(snap.projectLabel || '').trim();
 
-    // Sync worktree checkbox availability based on snap.hasGitRepo
-    const wtChk = document.getElementById('f-wt');
-    const branchIn = document.getElementById('f-branch');
+    // Sync worktree checkbox availability based on snap.hasGitRepo & selected dispatchEngine
     const hasGit = snap.hasGitRepo !== false;
-    if (!hasGit) {
-      wtChk.checked = false;
-      wtChk.disabled = true;
-      branchIn.value = '';
-      branchIn.disabled = true;
-    } else {
-      wtChk.disabled = false;
-      branchIn.disabled = false;
-      if (lastHasGitRepo !== true) {
-        wtChk.checked = true;
-      }
-    }
+    syncDispatchEngineUI();
     lastHasGitRepo = hasGit;
-    document.getElementById('lbl-f-wt').textContent = hasGit ? t.fWt : t.fWtDisabled;
 
     const allThreads = snap.threads || [];
     cachedThreads = allThreads;
@@ -2619,9 +2859,31 @@
     }
     updateCoordinatorControls();
 
+    const popoutCurBtn = document.getElementById('btn-popout-cur');
+    if (popoutCurBtn) {
+      if (th.engine === 'codex') {
+        popoutCurBtn.hidden = !th.codex?.desktopUrl;
+        popoutCurBtn.title = t.codexOpenTip;
+      } else {
+        popoutCurBtn.hidden = !th.conversationId;
+        popoutCurBtn.title = t.popoutTip;
+      }
+    }
+
     const compMeta = document.getElementById('composer-meta');
-    const modelLabel = formatModelDisplay(th.modelDisplayName || th.resolvedModel || th.model);
-    const roleLabel = th.worktreePath || th.branch ? t.roleWorker : t.roleReadOnly;
+    const isCodex = th.engine === 'codex';
+    const modelLabel = isCodex
+      ? th.modelDisplayName || th.resolvedModel || th.model || 'Codex'
+      : formatModelDisplay(th.modelDisplayName || th.resolvedModel || th.model);
+    const roleLabel = isCodex
+      ? th.codex?.taskKind === 'review'
+        ? t.roleCodexReview
+        : th.codex?.taskKind === 'plan'
+          ? t.roleCodexPlan
+          : t.roleCodexImpl
+      : th.worktreePath || th.branch
+        ? t.roleWorker
+        : t.roleReadOnly;
     const stepsHtml =
       th.toolStepCount > 0
         ? `<span class="comp-steps-pill">◌ ${esc(t.stepsUnit(th.toolStepCount))}</span>`
@@ -2966,6 +3228,10 @@
 
   async function sendChatFollowUp() {
     if (!openThreadId) return;
+    if (openThreadObj?.engine === 'codex' && openThreadObj.runState === 'RUN_STATE_RUNNING') {
+      flashToast(L().codexRunningInputTip, 'warn', 2800);
+      return;
+    }
     const text = elChatInput.value.trim();
     if (!text) return;
     const t = L();
@@ -3174,7 +3440,11 @@
   });
 
   document.getElementById('btn-popout-cur').addEventListener('click', () => {
-    if (openThreadObj?.conversationId) popoutToMainCanvas(openThreadObj.conversationId);
+    if (openThreadObj?.engine === 'codex') {
+      openCodexDesktop(openThreadObj);
+    } else if (openThreadObj?.conversationId) {
+      popoutToMainCanvas(openThreadObj.conversationId);
+    }
   });
 
   document.getElementById('btn-archive-cur').addEventListener('click', () => {
@@ -3306,6 +3576,18 @@
   });
 
   // Dispatch drawer controls
+  document.querySelectorAll('#f-engine-seg .engine-seg-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      setDispatchEngine(btn.dataset.engine || 'antigravity');
+    });
+  });
+  const elCodexKind = document.getElementById('f-codex-kind');
+  if (elCodexKind) {
+    elCodexKind.addEventListener('change', () => {
+      syncDispatchEngineUI();
+    });
+  }
   const elModelSelect = document.getElementById('f-model');
   if (elModelSelect) {
     elModelSelect.addEventListener('change', () => {
@@ -3335,10 +3617,19 @@
 
   document.getElementById('btn-submit-dispatch').addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
+    const engine = dispatchEngine === 'codex' ? 'codex' : 'antigravity';
     const title = document.getElementById('f-title').value.trim();
     const taskPrompt = document.getElementById('f-prompt').value.trim();
-    const branch = document.getElementById('f-branch').value.trim();
-    const model = document.getElementById('f-model').value;
+    const branch = engine === 'codex' ? '' : document.getElementById('f-branch').value.trim();
+    const model =
+      engine === 'codex'
+        ? document.getElementById('f-codex-model')?.value.trim() || ''
+        : document.getElementById('f-model').value;
+    const taskKind = engine === 'codex' ? document.getElementById('f-codex-kind')?.value || 'implement' : 'implement';
+    const effort = engine === 'codex' ? document.getElementById('f-codex-effort')?.value || '' : '';
+    const fast = engine === 'codex' && Boolean(document.getElementById('f-codex-fast')?.checked);
+    const structuredHandoff =
+      engine === 'codex' && Boolean(document.getElementById('f-codex-handoff')?.checked);
     const wtChk = document.getElementById('f-wt');
     const createWorktree = !wtChk.disabled && wtChk.checked;
     const errEl = document.getElementById('dispatch-msg');
@@ -3356,10 +3647,15 @@
         '/api/dispatch',
         '/api/dispatch_get',
         buildScopePayload({
+          engine,
           title,
           taskPrompt,
           branch,
           model,
+          taskKind,
+          effort,
+          fast,
+          structuredHandoff,
           createWorktree,
         }),
       );

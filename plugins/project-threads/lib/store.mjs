@@ -37,6 +37,26 @@ import {
   parseThreadTranscript,
   peekLiveActivity,
 } from './transcript.mjs';
+import {
+  buildCodexDisplayTitle,
+  buildCodexInitialPrompt,
+  buildCodexTaskName,
+  cleanupCodexWorktree,
+  extractCodexTelemetry,
+  extractCodexThreadCompletion,
+  formatCodexModelLabel,
+  getCodexEngineInfo,
+  isCodexThread,
+  launchCodexRun,
+  normalizeCodexEffort,
+  normalizeCodexTaskKind,
+  normalizeEngine,
+  openCodexDesktopUrl,
+  parseCodexTranscript,
+  peekCodexLiveActivity,
+  readCodexConfigDefaults,
+  syncCodexThreadRecord,
+} from './codex-adapter.mjs';
 
 const PROCESS_BOOT_ISO = new Date().toISOString();
 const seenRunningThreadIds = new Set();
@@ -106,6 +126,7 @@ export async function getModelSelectorState({
     defaultModelLabel: defaultEntry?.label || formatModelDisplay(defaultModel),
     coordinatorModel,
     models,
+    codex: getCodexEngineInfo(),
   };
 }
 
@@ -308,6 +329,21 @@ export function saveRegistry(reg) {
             }
             if (!memT.resolvedModel && diskT.resolvedModel) {
               memT.resolvedModel = diskT.resolvedModel;
+            }
+            if (diskT.codex && memT.codex) {
+              if (!memT.codex.sessionId && diskT.codex.sessionId) memT.codex.sessionId = diskT.codex.sessionId;
+              if (!memT.codex.desktopUrl && diskT.codex.desktopUrl) memT.codex.desktopUrl = diskT.codex.desktopUrl;
+              if (!memT.codex.nativeSession && diskT.codex.nativeSession) memT.codex.nativeSession = diskT.codex.nativeSession;
+              if (Array.isArray(diskT.codex.runs) && Array.isArray(memT.codex.runs)) {
+                const diskByRound = new Map(diskT.codex.runs.map((r) => [r.round, r]));
+                for (const mRun of memT.codex.runs) {
+                  const dRun = diskByRound.get(mRun.round);
+                  if (!dRun) continue;
+                  for (const k of ['runId', 'statusFile', 'eventsFile', 'finalFile', 'runnerPid', 'finishedAt']) {
+                    if (!mRun[k] && dRun[k]) mRun[k] = dRun[k];
+                  }
+                }
+              }
             }
           }
         }
@@ -1202,11 +1238,17 @@ export async function dispatchThread({
   baseRef = '',
   model = 'inherit',
   createWorktree = true,
+  engine = 'antigravity',
+  taskKind = 'implement',
+  effort = '',
+  fast = false,
+  structuredHandoff = false,
 }) {
   if (!title || !taskPrompt) {
     throw new Error('Both `title` and `taskPrompt` are required to dispatch a thread.');
   }
 
+  const targetEngine = normalizeEngine(engine);
   const reg = loadRegistry();
   const callerConvId = String(coordinatorId || conversationId || '').trim();
   const scope = await resolveProjectScope({
@@ -1240,9 +1282,6 @@ export async function dispatchThread({
   const resolvedEnvId = scope.environmentId || coord?.environmentId || '';
   const groupId = coord?.groupId || `proj-grp-${randomUUID().slice(0, 8)}`;
 
-  reg.seq = (reg.seq || 0) + 1;
-  const threadId = `thr-${String(reg.seq).padStart(3, '0')}`;
-
   const effectiveRepoRoot = scope.info.mainRepoRoot || scope.info.repoRoot || '';
   const projectLabel = scope.label || (scope.baseDir ? basename(scope.baseDir) : 'Project');
   ensureProjectMemoryFile(scope.baseDir, projectLabel, key);
@@ -1250,6 +1289,111 @@ export async function dispatchThread({
     await appendWorktreeExclude(effectiveRepoRoot, ['.agents/rules/project-memory.md']);
   }
   const { content: memoryText } = readProjectMemory(scope.baseDir, key);
+
+  if (targetEngine === 'codex') {
+    const projectDir = scope.baseDir || scope.info.workspacePath || effectiveRepoRoot || '';
+    if (!projectDir) {
+      throw new Error('Codex threads require a local project/workspace directory (`workspacePath`).');
+    }
+    const kind = normalizeCodexTaskKind(taskKind);
+    const normEffort = normalizeCodexEffort(effort);
+    const reqModel = String(model || '').trim();
+    const explicitModel =
+      reqModel && !/^(?:inherit|auto|default|config)$/i.test(reqModel) ? reqModel : '';
+    const useWorktree = kind === 'implement' && createWorktree !== false;
+
+    reg.seq = (reg.seq || 0) + 1;
+    const threadId = `thr-${String(reg.seq).padStart(3, '0')}`;
+    const codexTask = buildCodexTaskName(threadId, title);
+    const promptText = buildCodexInitialPrompt({
+      threadId,
+      title,
+      taskPrompt,
+      taskKind: kind,
+      memoryText,
+      structuredHandoff: Boolean(structuredHandoff),
+    });
+
+    const cfgDefaults = readCodexConfigDefaults();
+    const displayModel = formatCodexModelLabel({
+      model: explicitModel || cfgDefaults.model || 'Codex',
+      effort: normEffort || cfgDefaults.effort || '',
+      serviceTier: fast ? 'fast' : cfgDefaults.serviceTier || '',
+    });
+    const now = new Date().toISOString();
+    const displayTitle = buildCodexDisplayTitle(threadId, title);
+
+    const runRec = launchCodexRun({
+      threadId,
+      round: 1,
+      projectDir,
+      codexTask,
+      promptText,
+      taskKind: kind,
+      model: explicitModel,
+      effort: normEffort,
+      fast: Boolean(fast),
+      structuredHandoff: Boolean(structuredHandoff),
+      createWorktree: useWorktree,
+    });
+
+    const threadRecord = {
+      threadId,
+      engine: 'codex',
+      conversationId: '',
+      coordinatorId: resolvedCoordId,
+      workspaceKey: key,
+      projectId: resolvedProjId,
+      environmentId: resolvedEnvId,
+      groupId,
+      workspacePath: projectDir,
+      repoRoot: effectiveRepoRoot,
+      worktreePath: '',
+      branch: '',
+      baseRef: baseRef || scope.info.currentBranch || coord?.defaultBranch || 'HEAD',
+      title,
+      displayTitle,
+      taskPrompt,
+      model: explicitModel || cfgDefaults.model || 'codex',
+      modelDisplayName: displayModel,
+      resolvedModel: explicitModel || cfgDefaults.model || '',
+      runState: 'RUN_STATE_RUNNING',
+      archived: false,
+      git: null,
+      lastSummary: '',
+      lastCompletedAt: '',
+      notifiedCoordinatorAt: '',
+      createdAt: now,
+      updatedAt: now,
+      codex: {
+        taskName: codexTask,
+        taskKind: kind,
+        sourceProject: projectDir,
+        requestedModel: explicitModel,
+        requestedEffort: normEffort,
+        fast: Boolean(fast),
+        structuredHandoff: Boolean(structuredHandoff),
+        createWorktree: useWorktree,
+        sessionId: '',
+        desktopUrl: '',
+        nativeSession: '',
+        worktreeTopology: '',
+        worktreeRepos: [],
+        worktreeCleaned: false,
+        lastErrorKind: '',
+        lastError: '',
+        runs: [runRec],
+      },
+    };
+
+    reg.threads[threadId] = threadRecord;
+    seenRunningThreadIds.add(threadId);
+    saveRegistry(reg);
+    return threadRecord;
+  }
+
+  reg.seq = (reg.seq || 0) + 1;
+  const threadId = `thr-${String(reg.seq).padStart(3, '0')}`;
 
   let worktreePath = '';
   let resolvedBranch = branch || '';
@@ -1428,6 +1572,49 @@ export async function syncThreads({
         seenRunningThreadIds.add(t.threadId);
       }
 
+      if (isCodexThread(t)) {
+        const cxSync = await syncCodexThreadRecord(t, { inspectGitFn: inspectWorktreeGit });
+        if (cxSync.dirty) dirty = true;
+        if (t.runState === 'RUN_STATE_RUNNING') {
+          seenRunningThreadIds.add(t.threadId);
+        }
+        const liveAct = peekCodexLiveActivity(t);
+        const isActivelyWorking = !t.archived && t.runState === 'RUN_STATE_RUNNING';
+        t.hasPendingBgTask = false;
+        t.activeTool = isActivelyWorking ? liveAct.activeTool || '' : '';
+        t.activeToolObj = isActivelyWorking ? liveAct.activeToolObj || null : null;
+        t.stepsProgress = liveAct.stepsProgress || null;
+        t.stepsList = liveAct.stepsList || null;
+        t.toolStepCount = liveAct.toolStepCount || 0;
+
+        if (liveAct.lastSummary && !isActivelyWorking) {
+          if (!t.lastSummary || t.lastSyncedStepIndex !== liveAct.lastStepIndex) {
+            t.lastSummary = liveAct.lastSummary;
+            dirty = true;
+          }
+        }
+
+        const { bucket, waitingReason } = computeThreadBucket(t, liveAct);
+        t.bucket = bucket;
+        t.waitingReason = waitingReason;
+
+        if (
+          !t.archived &&
+          t.runState === 'RUN_STATE_IDLE' &&
+          liveAct.lastStepIndex >= 1 &&
+          t.lastSyncedStepIndex !== liveAct.lastStepIndex &&
+          (wasRunning || (t.createdAt && t.createdAt >= PROCESS_BOOT_ISO))
+        ) {
+          const finishedMs = Date.parse(t.lastCompletedAt || t.updatedAt || '') || Date.now();
+          if (Date.now() - finishedMs >= 4000) {
+            pendingAutoSyncIds.push(t.threadId);
+          }
+        } else if (t.runState === 'RUN_STATE_IDLE' && t.lastSyncedStepIndex === liveAct.lastStepIndex) {
+          seenRunningThreadIds.delete(t.threadId);
+        }
+        return;
+      }
+
       let convChanged = false;
       try {
         const live = await getConversation(t.conversationId);
@@ -1526,14 +1713,18 @@ export async function syncThreads({
     }),
   );
 
-  // Resolve concrete model display names with bounded concurrency & smart caching
-  await mapWithConcurrency(list, 5, async (t) => {
-    const modelChanged = await resolveThreadModelInfo(t, {
-      convUpdatedAt: t.updatedAt || '',
-      convRunState: t.runState || '',
-    });
-    if (modelChanged) dirty = true;
-  });
+  // Resolve concrete model display names with bounded concurrency & smart caching (Antigravity threads)
+  await mapWithConcurrency(
+    list.filter((t) => !isCodexThread(t)),
+    5,
+    async (t) => {
+      const modelChanged = await resolveThreadModelInfo(t, {
+        convUpdatedAt: t.updatedAt || '',
+        convRunState: t.runState || '',
+      });
+      if (modelChanged) dirty = true;
+    },
+  );
 
   if (dirty) saveRegistry(reg);
 
@@ -1552,10 +1743,13 @@ export async function syncThreads({
 
   const decoratedThreads = list.map((t) => ({
     ...t,
-    telemetry: extractSessionTelemetry(t.conversationId, {
-      modelName: t.modelDisplayName || '',
-      rawModelId: t.resolvedModel || t.model || '',
-    }),
+    engine: normalizeEngine(t.engine),
+    telemetry: isCodexThread(t)
+      ? extractCodexTelemetry(t)
+      : extractSessionTelemetry(t.conversationId, {
+          modelName: t.modelDisplayName || '',
+          rawModelId: t.resolvedModel || t.model || '',
+        }),
   }));
 
   if (allWorkspaces) {
@@ -1901,6 +2095,24 @@ export async function cleanupThreadWorktree(threadIdOrOpts, optsArg = {}) {
     return makeCleanupResult(updated);
   }
 
+  if (isCodexThread(t)) {
+    const res = await cleanupCodexWorktree(t, { forceWorktree, deleteBranch });
+    if (res.worktreeRemoved) {
+      const freshReg = loadRegistry();
+      const freshT = freshReg.threads[t.threadId];
+      if (freshT) {
+        freshT.worktreePath = '';
+        freshT.git = null;
+        if (freshT.codex) freshT.codex.worktreeCleaned = true;
+        freshT.updatedAt = new Date().toISOString();
+        saveRegistry(freshReg);
+        res.thread = freshT;
+      }
+      invalidateWorktreeGitCache(worktreePath);
+    }
+    return res;
+  }
+
   const repoRoot = await resolveThreadRepoRoot(t, reg);
 
   // Already-missing directory: prune stale Git worktree metadata and clear registry
@@ -2103,10 +2315,12 @@ export async function archiveThread(threadIdOrOpts, optsArg = {}) {
     Object.values(reg.threads).find((x) => x.conversationId === threadId);
   if (!t) throw new Error(`Thread not found: ${threadId}`);
 
-  try {
-    await updateConversation(t.conversationId, { archived: true });
-  } catch {
-    // Ignore if already archived/deleted
+  if (!isCodexThread(t) && t.conversationId) {
+    try {
+      await updateConversation(t.conversationId, { archived: true });
+    } catch {
+      // Ignore if already archived/deleted
+    }
   }
 
   t.archived = true;
@@ -2282,6 +2496,44 @@ export async function sendThreadMessage({ threadId, message, title = '' }) {
   const t = reg.threads[threadId] || Object.values(reg.threads).find((x) => x.conversationId === threadId);
   if (!t) throw new Error(`Thread not found: ${threadId}`);
 
+  if (isCodexThread(t)) {
+    await syncCodexThreadRecord(t, { inspectGitFn: inspectWorktreeGit });
+    if (t.runState === 'RUN_STATE_RUNNING') {
+      throw new Error(
+        `Codex thread ${t.threadId} is still running its current turn; wait until it finishes before sending a follow-up.`,
+      );
+    }
+    const sid = String(t.codex?.sessionId || '').trim();
+    if (!sid) {
+      throw new Error(
+        `Codex thread ${t.threadId} has no sessionId yet (check if the first round failed before Codex started).`,
+      );
+    }
+    const runs = Array.isArray(t.codex.runs) ? t.codex.runs : [];
+    const nextRound = runs.length + 1;
+    const projectDir = t.codex.sourceProject || t.workspacePath || t.repoRoot || '';
+    const nextRun = launchCodexRun({
+      threadId: t.threadId,
+      round: nextRound,
+      projectDir,
+      codexTask: t.codex.taskName,
+      promptText: text,
+      userMessage: text,
+      taskKind: t.codex.taskKind || 'implement',
+      createWorktree: Boolean(t.codex.createWorktree),
+      sessionId: sid,
+    });
+    runs.push(nextRun);
+    t.codex.runs = runs;
+    t.codex.lastErrorKind = '';
+    t.codex.lastError = '';
+    t.runState = 'RUN_STATE_RUNNING';
+    t.updatedAt = new Date().toISOString();
+    seenRunningThreadIds.add(t.threadId);
+    saveRegistry(reg);
+    return { ok: true, thread: t };
+  }
+
   try {
     await invokeAgentApiSend({
       conversationId: t.conversationId,
@@ -2411,7 +2663,14 @@ export async function syncCompletionToCoordinator({
     return { ok: false, synced: false, reason: 'no_coordinator_bound' };
   }
 
-  let completion = extractThreadCompletion(t.conversationId, transcriptPath);
+  const isCodex = isCodexThread(t);
+  if (isCodex) {
+    await syncCodexThreadRecord(t, { inspectGitFn: inspectWorktreeGit });
+  }
+
+  let completion = isCodex
+    ? extractCodexThreadCompletion(t)
+    : extractThreadCompletion(t.conversationId, transcriptPath);
   if (completion.waitingOnBackgroundTask && !force) {
     return {
       ok: false,
@@ -2420,7 +2679,7 @@ export async function syncCompletionToCoordinator({
       pendingTaskIds: completion.pendingTaskIds || [],
     };
   }
-  if (force && !completion.fullReport && completion.waitingOnBackgroundTask) {
+  if (force && !completion.fullReport && completion.waitingOnBackgroundTask && !isCodex) {
     completion = extractLatestAssistantText(t.conversationId, transcriptPath);
   }
 
@@ -2475,15 +2734,37 @@ export async function syncCompletionToCoordinator({
     }
   }
 
-  const nextGit = t.worktreePath
-    ? await inspectWorktreeGit(t.worktreePath, t.baseRef, { force: true })
-    : t.git;
+  const nextGit =
+    !isCodex && t.worktreePath
+      ? await inspectWorktreeGit(t.worktreePath, t.baseRef, { force: true })
+      : t.git;
 
-  const gitMeta = t.branch
-    ? `Isolated branch \`${t.branch}\`` +
-      (nextGit?.lastCommit ? ` | Latest commit: \`${nextGit.lastCommit}\`` : '') +
-      (nextGit?.dirtyCount ? ` | Uncommitted files: ${nextGit.dirtyCount}` : '')
-    : 'Read-only shared workspace inspection';
+  const gitMeta = isCodex
+    ? [
+        `Engine: \`Codex\` (\`${t.codex?.taskKind || 'implement'}\`)`,
+        t.modelDisplayName ? `Model: \`${t.modelDisplayName}\`` : '',
+        t.branch ? `Branch: \`${t.branch}\`` : t.worktreePath ? `Worktree: \`${t.worktreePath}\`` : 'In-place / read-only',
+        nextGit?.lastCommit ? `Latest commit: \`${nextGit.lastCommit}\`` : '',
+        nextGit?.dirtyCount ? `Uncommitted files: ${nextGit.dirtyCount}` : '',
+      ]
+        .filter(Boolean)
+        .join(' | ')
+    : t.branch
+      ? `Isolated branch \`${t.branch}\`` +
+        (nextGit?.lastCommit ? ` | Latest commit: \`${nextGit.lastCommit}\`` : '') +
+        (nextGit?.dirtyCount ? ` | Uncommitted files: ${nextGit.dirtyCount}` : '')
+      : 'Read-only shared workspace inspection';
+
+  const threadRefLink = isCodex
+    ? t.codex?.desktopUrl
+      ? ` ([Open in Codex Desktop](${t.codex.desktopUrl}))`
+      : ''
+    : ` ([View Full Thread](conversation://${t.conversationId}))`;
+  const bannerLink = isCodex
+    ? t.codex?.desktopUrl
+      ? ` ([Codex Desktop](${t.codex.desktopUrl}))`
+      : ''
+    : ` ([View Thread](conversation://${t.conversationId}))`;
 
   const reportStatusLine = completion.reportTruncated
     ? `- **Report Status**: Folded (${completion.rawFullTextLength} chars → ${reportBody.length} chars; \`### Thread Summary\` preserved). If exact folded details are needed, call \`get_thread_detail(threadId: "${t.threadId}", includeFullReport: true)\` — do NOT read raw \`transcript_full.jsonl\`.`
@@ -2492,7 +2773,7 @@ export async function syncCompletionToCoordinator({
   const callbackMsg = [
     `[THREAD_COMPLETION_SYNC] Worker thread \`${t.threadId}\` has finished execution (automated plugin callback — do NOT call dispatch_thread to spawn a duplicate thread for this callback):`,
     '',
-    `- **Thread ID**: \`${t.threadId}\` ([View Full Thread](conversation://${t.conversationId}))`,
+    `- **Thread ID**: \`${t.threadId}\`${threadRefLink}`,
     `- **Task Title**: ${t.title}`,
     `- **Mode / Branch**: ${gitMeta}`,
     ...(reportStatusLine ? [reportStatusLine] : []),
@@ -2503,7 +2784,7 @@ export async function syncCompletionToCoordinator({
     '---',
     '### Coordinator Segmented Card Output Format (Required)',
     'To keep consecutive worker callbacks visually separated like distinct conversation segments, reply in the user\'s language using this exact card structure (if this conclusion duplicates an already-reported result, give only a one-line acknowledgment without exposing internal dedup metadata):',
-    `1. Start with a blockquote banner: \`> **✅ [${t.threadId}] ${t.title} · Completed** ([View Thread](conversation://${t.conversationId}))\` (localize "Completed" / "View Thread" to match the user's conversation language).`,
+    `1. Start with a blockquote banner: \`> **✅ [${t.threadId}] ${t.title} · Completed**${bannerLink}\` (localize "Completed" / "View Thread" to match the user's conversation language).`,
     '2. Below the banner, list **only 3–5 concise takeaway bullets** (root cause / key findings or changes / any decision needed from the user; leave verbose logs and large tables inside the worker thread).',
     '3. End with a horizontal rule `---` so adjacent thread callbacks have a clean visual boundary (and call `update_project_memory` if reusable project-wide constraints emerged).',
   ].join('\n');
@@ -2611,6 +2892,30 @@ export async function markThreadRead({ threadId }) {
   if (!t) throw new Error(`Thread not found: ${threadId}`);
 
   let dirty = false;
+  if (isCodexThread(t)) {
+    const cxSync = await syncCodexThreadRecord(t, { inspectGitFn: inspectWorktreeGit });
+    if (cxSync.dirty) dirty = true;
+    const liveAct = peekCodexLiveActivity(t);
+    const isActivelyWorking = !t.archived && t.runState === 'RUN_STATE_RUNNING';
+    if (!isActivelyWorking) {
+      if (applyMarkThreadReadOnRecord(t, liveAct)) dirty = true;
+    } else {
+      const { bucket, waitingReason } = computeThreadBucket(t, liveAct);
+      t.bucket = bucket;
+      t.waitingReason = waitingReason;
+    }
+    if (dirty) saveRegistry(reg);
+    return {
+      ok: true,
+      locale: resolveAppLocale(),
+      threadId: t.threadId,
+      bucket: t.bucket,
+      waitingReason: t.waitingReason,
+      viewedAt: t.viewedAt || '',
+      thread: t,
+    };
+  }
+
   if (t.runState === 'RUN_STATE_RUNNING') {
     try {
       const live = await getConversation(t.conversationId);
@@ -2675,7 +2980,9 @@ export async function getThreadDetail({
     return t;
   }
 
-  const latest = extractLatestAssistantText(t.conversationId);
+  const latest = isCodexThread(t)
+    ? extractCodexThreadCompletion(t)
+    : extractLatestAssistantText(t.conversationId);
   const raw = latest.rawFullText || '';
   const cap = Math.min(80000, Math.max(1000, Number(maxReportChars) || 30000));
   const fullReportTruncated = raw.length > cap;
@@ -2692,10 +2999,83 @@ export async function getThreadDetail({
   };
 }
 
+export async function openExternalThread({ threadId }) {
+  if (!threadId) throw new Error('`threadId` is required.');
+  const reg = loadRegistry();
+  const t = reg.threads[threadId] || Object.values(reg.threads).find((x) => x.conversationId === threadId);
+  if (!t) throw new Error(`Thread not found: ${threadId}`);
+  if (!isCodexThread(t)) {
+    return { ok: false, error: 'Only external engine threads support external launch.' };
+  }
+  const cxSync = await syncCodexThreadRecord(t, { inspectGitFn: inspectWorktreeGit });
+  if (cxSync.dirty) saveRegistry(reg);
+  const desktopUrl = String(t.codex?.desktopUrl || '').trim();
+  if (!desktopUrl) {
+    return { ok: false, error: 'Codex Desktop URL is not ready yet; wait a few seconds and retry.' };
+  }
+  return openCodexDesktopUrl(desktopUrl);
+}
+
 export async function getThreadMessages({ threadId, clientStamp = '', markRead = false }) {
   const reg = loadRegistry();
   const t = reg.threads[threadId] || Object.values(reg.threads).find((x) => x.conversationId === threadId);
   if (!t) throw new Error(`Thread not found: ${threadId}`);
+
+  if (isCodexThread(t)) {
+    let dirty = false;
+    const cxSync = await syncCodexThreadRecord(t, { inspectGitFn: inspectWorktreeGit });
+    if (cxSync.dirty) dirty = true;
+
+    const parsed = parseCodexTranscript(t, t.pendingUserMessages || []);
+    const liveAct = peekCodexLiveActivity(t);
+    const isActivelyWorking = !t.archived && t.runState === 'RUN_STATE_RUNNING';
+    if (markRead && !isActivelyWorking) {
+      if (applyMarkThreadReadOnRecord(t, liveAct)) dirty = true;
+    } else {
+      const { bucket, waitingReason } = computeThreadBucket(t, liveAct);
+      t.bucket = bucket;
+      t.waitingReason = waitingReason;
+    }
+    if (dirty) saveRegistry(reg);
+
+    const telemetry = extractCodexTelemetry(t);
+    const telStamp = telemetry
+      ? `${telemetry.totalTokens}:${telemetry.currentContextTokens}:${telemetry.compactionCount}`
+      : '';
+    const locale = resolveAppLocale();
+    const modelStamp = t.modelDisplayName || t.resolvedModel || t.model || '';
+    const fullStamp = `${parsed.stamp}|rs:${t.runState}|b:${t.bucket}|m:${modelStamp}|tel:${telStamp}|loc:${locale}`;
+    const threadView = {
+      ...t,
+      engine: 'codex',
+      telemetry,
+      hasPendingBgTask: false,
+      activeTool: isActivelyWorking ? liveAct.activeTool || parsed.activeActivity || '' : '',
+      activeToolObj: isActivelyWorking ? liveAct.activeToolObj || null : null,
+      stepsProgress: null,
+      stepsList: null,
+      toolStepCount: liveAct.toolStepCount || 0,
+    };
+
+    if (clientStamp && clientStamp === fullStamp) {
+      return {
+        ok: true,
+        unchanged: true,
+        locale,
+        stamp: fullStamp,
+        thread: threadView,
+      };
+    }
+
+    return {
+      ok: true,
+      unchanged: false,
+      locale,
+      stamp: fullStamp,
+      thread: threadView,
+      items: parsed.items,
+    };
+  }
 
   let dirty = false;
   let convUpdatedAt = t.updatedAt || '';
