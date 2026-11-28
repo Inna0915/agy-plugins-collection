@@ -57,6 +57,8 @@ import {
   parseCodexTranscript,
   peekCodexLiveActivity,
   readCodexConfigDefaults,
+  readCodexPluginDefaults,
+  saveCodexPluginDefaults,
   syncCodexThreadRecord,
 } from './codex-adapter.mjs';
 
@@ -66,6 +68,11 @@ const seenRunningThreadIds = new Set();
 export function getDefaultThreadModel() {
   const envDefault = String(process.env.PROJECT_THREADS_DEFAULT_MODEL || '').trim();
   return envDefault || 'gemini-4-neon-xhigh';
+}
+
+export function saveCodexDefaults({ model = '', effort = '', fast = null, reset = false } = {}) {
+  saveCodexPluginDefaults({ model, effort, fast, reset });
+  return getCodexEngineInfo();
 }
 
 export async function resolveConversationConcreteModel(conversationId) {
@@ -1469,7 +1476,7 @@ export async function dispatchThread({
   engine = 'antigravity',
   taskKind = 'implement',
   effort = '',
-  fast = false,
+  fast = undefined,
   structuredHandoff = false,
 }) {
   if (!title || !taskPrompt) {
@@ -1523,11 +1530,20 @@ export async function dispatchThread({
     if (!projectDir) {
       throw new Error('Codex threads require a local project/workspace directory (`workspacePath`).');
     }
+    const cfgDefaults = readCodexConfigDefaults();
+    const pluginDefaults = readCodexPluginDefaults();
     const kind = normalizeCodexTaskKind(taskKind);
-    const normEffort = normalizeCodexEffort(effort);
+    const rawEffort = String(effort || '').trim();
+    const normEffort = /^config$/i.test(rawEffort)
+      ? ''
+      : normalizeCodexEffort(rawEffort) || pluginDefaults.effort || '';
     const reqModel = String(model || '').trim();
-    const explicitModel =
-      reqModel && !/^(?:inherit|auto|default|config)$/i.test(reqModel) ? reqModel : '';
+    const explicitModel = /^config$/i.test(reqModel)
+      ? ''
+      : reqModel && !/^(?:inherit|auto|default)$/i.test(reqModel)
+        ? reqModel
+        : pluginDefaults.model || '';
+    const effectiveFast = typeof fast === 'boolean' ? fast : pluginDefaults.fast === true;
     const useWorktree = kind === 'implement' && createWorktree !== false;
 
     const reservedSeq = mutateRegistry((freshReg) => {
@@ -1545,11 +1561,10 @@ export async function dispatchThread({
       structuredHandoff: Boolean(structuredHandoff),
     });
 
-    const cfgDefaults = readCodexConfigDefaults();
     const displayModel = formatCodexModelLabel({
       model: explicitModel || cfgDefaults.model || 'Codex',
       effort: normEffort || cfgDefaults.effort || '',
-      serviceTier: fast ? 'fast' : cfgDefaults.serviceTier || '',
+      serviceTier: effectiveFast ? 'fast' : '',
     });
     const now = new Date().toISOString();
     const displayTitle = buildCodexDisplayTitle(threadId, title);
@@ -1563,7 +1578,7 @@ export async function dispatchThread({
       taskKind: kind,
       model: explicitModel,
       effort: normEffort,
-      fast: Boolean(fast),
+      fast: effectiveFast,
       structuredHandoff: Boolean(structuredHandoff),
       createWorktree: useWorktree,
     });
@@ -1602,7 +1617,7 @@ export async function dispatchThread({
         sourceProject: projectDir,
         requestedModel: explicitModel,
         requestedEffort: normEffort,
-        fast: Boolean(fast),
+        fast: effectiveFast,
         structuredHandoff: Boolean(structuredHandoff),
         createWorktree: useWorktree,
         sessionId: '',

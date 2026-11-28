@@ -102,16 +102,16 @@ const TOOLS = [
         },
         model: {
           type: 'string',
-          description: 'Model ID. For Antigravity: e.g. "gemini-4-neon-xhigh", "inherit" (follow current Coordinator model, fallback to "gemini-4-neon-xhigh"), or tier alias ("pro", "flash", "flash_lite"). Defaults to "inherit". For Codex: omit or pass "default" to inherit ~/.codex/config.toml.',
+          description: 'Model ID. For Antigravity: e.g. "gemini-4-neon-xhigh", "inherit" (follow current Coordinator model, fallback to "gemini-4-neon-xhigh"), or tier alias ("pro", "flash", "flash_lite"). Defaults to "inherit". For Codex: omit or pass "default" to use the plugin dedicated Codex default (codex-defaults.json) and fall back to ~/.codex/config.toml.',
         },
         effort: {
           type: 'string',
           enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-          description: 'Codex engine only: optional reasoning effort override (omit to inherit ~/.codex/config.toml).',
+          description: 'Codex engine only: optional reasoning effort override (omit to use plugin Codex default or ~/.codex/config.toml).',
         },
         fast: {
           type: 'boolean',
-          description: 'Codex engine only: enable priority/fast service tier (-Fast). Default: false.',
+          description: 'Codex engine only: enable priority/fast service tier (-Fast). Omit to follow plugin Codex default (default: false).',
         },
         structuredHandoff: {
           type: 'boolean',

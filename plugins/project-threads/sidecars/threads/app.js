@@ -277,6 +277,20 @@
       taskCompletedTag: 'Completed',
       taskCompletionSynced: 'Thread completion synced',
       bgTaskFallback: 'Background task',
+      codexModelFollowCfg: (m) => (m ? `Follow global config (${m})` : 'Follow Codex global config'),
+      codexDefSummaryPlugin: (desc) => `Dedicated default: ${desc}`,
+      codexDefSummaryGlobal: (desc) => `Default: global config (${desc})`,
+      codexDefSummaryNone: 'Default: follow Codex global config',
+      codexDefTip:
+        'Applies to all Codex threads in Project Threads (both UI and Coordinator MCP) without changing Codex Desktop global config',
+      codexSaveDefBtn: 'Save default',
+      codexUpdateDefBtn: 'Update default',
+      codexSavingDefBtn: 'Saving…',
+      codexResetDefBtn: 'Use global',
+      codexSavedDefToast: 'Saved dedicated Codex default (Codex Desktop untouched)',
+      codexResetDefToast: 'Restored Codex global config default',
+      codexSaveDefErrToast: 'Failed to save Codex default',
+      codexFastTag: 'Fast',
     },
 
     'zh-CN': {
@@ -507,7 +521,7 @@
       codexKindPlan: '双盲方案（硬锁只读 · 原位）',
       fCodexEffort: '思考档位',
       codexDefaultCfg: (val) => (val ? `默认（${val}）` : '默认（沿用全局配置）'),
-      fCodexModel: 'Codex 模型（可选）',
+      fCodexModel: 'Codex 模型',
       fCodexModelPh: (m) => (m ? `留空默认使用 ${m}（来自全局配置）` : '留空默认沿用 Codex 全局配置'),
       fCodexFast: '高速档位',
       fCodexHandoff: '强结构化回执',
@@ -543,6 +557,20 @@
       taskCompletedTag: '已完成',
       taskCompletionSynced: '线程完成结果已同步',
       bgTaskFallback: '后台任务',
+      codexModelFollowCfg: (m) => (m ? `沿用全局配置（${m}）` : '沿用 Codex 全局配置'),
+      codexDefSummaryPlugin: (desc) => `独立默认：${desc}`,
+      codexDefSummaryGlobal: (desc) => `当前默认：沿用全局（${desc}）`,
+      codexDefSummaryNone: '当前默认：沿用全局配置',
+      codexDefTip:
+        '此独立默认仅作用于项目线程中的 Codex（面板与总控 MCP 均自动生效），不影响 Codex 桌面端全局配置',
+      codexSaveDefBtn: '设为默认',
+      codexUpdateDefBtn: '更新默认',
+      codexSavingDefBtn: '保存中…',
+      codexResetDefBtn: '恢复全局',
+      codexSavedDefToast: '已保存为 Codex 独立默认配置（不影响桌面端）',
+      codexResetDefToast: '已恢复沿用全局配置',
+      codexSaveDefErrToast: '保存 Codex 默认配置失败',
+      codexFastTag: '高速',
     },
 
     'zh-TW': {
@@ -773,7 +801,7 @@
       codexKindPlan: '雙盲方案（硬鎖唯讀 · 原位）',
       fCodexEffort: '思考檔位',
       codexDefaultCfg: (val) => (val ? `預設（${val}）` : '預設（沿用全域設定）'),
-      fCodexModel: 'Codex 模型（可選）',
+      fCodexModel: 'Codex 模型',
       fCodexModelPh: (m) => (m ? `留空預設使用 ${m}（來自全域設定）` : '留空預設沿用 Codex 全域設定'),
       fCodexFast: '高速檔位',
       fCodexHandoff: '強結構化回執',
@@ -809,6 +837,20 @@
       taskCompletedTag: '已完成',
       taskCompletionSynced: '執行緒完成結果已同步',
       bgTaskFallback: '背景任務',
+      codexModelFollowCfg: (m) => (m ? `沿用全域設定（${m}）` : '沿用 Codex 全域設定'),
+      codexDefSummaryPlugin: (desc) => `獨立預設：${desc}`,
+      codexDefSummaryGlobal: (desc) => `目前預設：沿用全域（${desc}）`,
+      codexDefSummaryNone: '目前預設：沿用全域設定',
+      codexDefTip:
+        '此獨立預設僅套用於專案執行緒中的 Codex（面板與總控 MCP 皆自動生效），不影響 Codex 桌面端全域設定',
+      codexSaveDefBtn: '設為預設',
+      codexUpdateDefBtn: '更新預設',
+      codexSavingDefBtn: '儲存中…',
+      codexResetDefBtn: '恢復全域',
+      codexSavedDefToast: '已儲存為 Codex 獨立預設設定（不影響桌面端）',
+      codexResetDefToast: '已恢復沿用全域設定',
+      codexSaveDefErrToast: '儲存 Codex 預設設定失敗',
+      codexFastTag: '高速',
     },
   };
 
@@ -877,9 +919,13 @@
     codex: {
       available: true,
       defaults: { model: '', effort: '', serviceTier: '' },
+      pluginDefaults: { configured: false, model: '', effort: '', fast: false },
+      effectiveDefaults: { model: '', effort: '', fast: false, hasPluginOverride: false },
+      models: [],
     },
   };
   let dispatchEngine = 'antigravity';
+  let codexFormDirty = false;
   let selectableModels = [];
   let selectableModelsLoadedAt = 0;
   let selectableModelsLoading = false;
@@ -1164,14 +1210,12 @@
     }
     const cxModelLbl = document.getElementById('lbl-f-codex-model');
     if (cxModelLbl) cxModelLbl.textContent = t.fCodexModel;
-    const cxModelIn = document.getElementById('f-codex-model');
-    if (cxModelIn) {
-      cxModelIn.placeholder = t.fCodexModelPh(modelCatalogState.codex?.defaults?.model || '');
-    }
     const cxFastLbl = document.getElementById('lbl-f-codex-fast');
     if (cxFastLbl) cxFastLbl.textContent = t.fCodexFast;
     const cxHandoffLbl = document.getElementById('lbl-f-codex-handoff');
     if (cxHandoffLbl) cxHandoffLbl.textContent = t.fCodexHandoff;
+    populateCodexModelSelect({ preserveSelection: true });
+    renderCodexDefaultsBar();
     document.getElementById('lbl-f-title').textContent = t.fTitle;
     document.getElementById('f-title').placeholder = t.fTitlePh;
     document.getElementById('lbl-f-branch').textContent = t.fBranch;
@@ -1322,6 +1366,139 @@
     renderModelSelectOptions();
   }
 
+  function formatCodexEffortShort(effort) {
+    const key = String(effort || '').trim().toLowerCase();
+    if (!key) return '';
+    return L().effortOpt?.[key] || key;
+  }
+
+  function populateCodexModelSelect({ preserveSelection = true } = {}) {
+    const sel = document.getElementById('f-codex-model');
+    if (!sel) return;
+    const t = L();
+    const cx = modelCatalogState.codex || {};
+    const cfgModel = cx.defaults?.model || '';
+    const pluginModel = cx.pluginDefaults?.model || '';
+    const prevVal = preserveSelection ? sel.value : pluginModel;
+    const models = Array.isArray(cx.models) ? cx.models : [];
+
+    const list = [...models];
+    for (const extra of [pluginModel, prevVal]) {
+      const id = String(extra || '').trim();
+      if (id && !list.some((m) => m.id.toLowerCase() === id.toLowerCase())) {
+        list.unshift({ id, label: id });
+      }
+    }
+
+    const opts = [`<option value="">${esc(t.codexModelFollowCfg(cfgModel))}</option>`];
+    for (const m of list) {
+      const text =
+        m.label && m.label.toLowerCase() !== m.id.toLowerCase()
+          ? `${m.label} (${m.id})`
+          : m.label || m.id;
+      opts.push(`<option value="${esc(m.id)}">${esc(text)}</option>`);
+    }
+    sel.innerHTML = opts.join('');
+
+    const target = preserveSelection && codexFormDirty ? prevVal : pluginModel;
+    if (target && Array.from(sel.options).some((o) => o.value === target)) {
+      sel.value = target;
+    } else {
+      sel.value = '';
+    }
+  }
+
+  function applyCodexDefaultsToForm({ force = false } = {}) {
+    if (codexFormDirty && !force) return;
+    const pd = modelCatalogState.codex?.pluginDefaults || {};
+    populateCodexModelSelect({ preserveSelection: false });
+    const modelSel = document.getElementById('f-codex-model');
+    if (modelSel) {
+      modelSel.value =
+        pd.model && Array.from(modelSel.options).some((o) => o.value === pd.model) ? pd.model : '';
+    }
+    const effSel = document.getElementById('f-codex-effort');
+    if (effSel) {
+      effSel.value =
+        pd.effort && Array.from(effSel.options).some((o) => o.value === pd.effort) ? pd.effort : '';
+    }
+    const fastChk = document.getElementById('f-codex-fast');
+    if (fastChk) {
+      fastChk.checked = pd.fast === true;
+    }
+    if (force) codexFormDirty = false;
+  }
+
+  function renderCodexDefaultsBar() {
+    const bar = document.getElementById('codex-defaults-bar');
+    const summaryEl = document.getElementById('codex-defaults-summary');
+    const saveBtn = document.getElementById('btn-save-codex-defaults');
+    const resetBtn = document.getElementById('btn-reset-codex-defaults');
+    if (!bar || !summaryEl || !saveBtn || !resetBtn) return;
+
+    const t = L();
+    const cx = modelCatalogState.codex || {};
+    const pd = cx.pluginDefaults || {};
+    const eff = cx.effectiveDefaults || {};
+    const cfg = cx.defaults || {};
+    const hasCustom = Boolean(pd.configured || eff.hasPluginOverride);
+
+    const effModelId = eff.model || pd.model || cfg.model || '';
+    const modelEntry = (cx.models || []).find(
+      (m) => m.id.toLowerCase() === effModelId.toLowerCase(),
+    );
+    const modelText = modelEntry?.label || effModelId;
+    const effEffort = eff.effort || pd.effort || cfg.effort || '';
+    const effFast = eff.fast === true || pd.fast === true;
+
+    const descParts = [];
+    if (modelText) descParts.push(modelText);
+    if (effEffort) descParts.push(formatCodexEffortShort(effEffort));
+    if (effFast) descParts.push(t.codexFastTag);
+    const desc = descParts.join(' · ');
+
+    bar.classList.toggle('has-custom', hasCustom);
+    bar.title = t.codexDefTip;
+    summaryEl.textContent = hasCustom
+      ? t.codexDefSummaryPlugin(desc || t.codexFastTag)
+      : desc
+        ? t.codexDefSummaryGlobal(desc)
+        : t.codexDefSummaryNone;
+
+    if (!saveBtn.disabled) {
+      saveBtn.textContent = hasCustom ? t.codexUpdateDefBtn : t.codexSaveDefBtn;
+    }
+    saveBtn.title = t.codexDefTip;
+    resetBtn.hidden = !hasCustom;
+    if (!resetBtn.disabled) {
+      resetBtn.textContent = t.codexResetDefBtn;
+    }
+  }
+
+  function syncCodexCatalogUI(codexInfo, { forceApplyForm = false } = {}) {
+    if (!codexInfo) return;
+    modelCatalogState.codex = codexInfo;
+    const t = L();
+    const btnEngCodex = document.getElementById('btn-eng-codex');
+    if (btnEngCodex) {
+      btnEngCodex.disabled = codexInfo.available === false;
+      btnEngCodex.textContent =
+        codexInfo.available === false ? t.engineCodexUnavail : t.engineCodex;
+    }
+    const effSel = document.getElementById('f-codex-effort');
+    if (effSel && effSel.options.length > 0) {
+      const defEff = codexInfo.defaults?.effort || '';
+      const defEffLbl = defEff && t.effortOpt?.[defEff] ? t.effortOpt[defEff] : defEff;
+      effSel.options[0].textContent = t.codexDefaultCfg(defEffLbl);
+    }
+    if (forceApplyForm || !codexFormDirty) {
+      applyCodexDefaultsToForm({ force: forceApplyForm });
+    } else {
+      populateCodexModelSelect({ preserveSelection: true });
+    }
+    renderCodexDefaultsBar();
+  }
+
   async function refreshModelOptions(force = false) {
     const now = Date.now();
     if (!force && selectableModels.length > 0 && now - selectableModelsLoadedAt < 45_000) {
@@ -1352,24 +1529,7 @@
           selectableModels = list;
           selectableModelsLoadedAt = Date.now();
           if (data.codex) {
-            modelCatalogState.codex = data.codex;
-            const btnEngCodex = document.getElementById('btn-eng-codex');
-            if (btnEngCodex) {
-              btnEngCodex.disabled = data.codex.available === false;
-              btnEngCodex.textContent =
-                data.codex.available === false ? L().engineCodexUnavail : L().engineCodex;
-            }
-            const effSel = document.getElementById('f-codex-effort');
-            if (effSel && effSel.options.length > 0) {
-              const t = L();
-              const defEff = data.codex.defaults?.effort || '';
-              const defEffLbl = defEff && t.effortOpt?.[defEff] ? t.effortOpt[defEff] : defEff;
-              effSel.options[0].textContent = t.codexDefaultCfg(defEffLbl);
-            }
-            const cxModelIn = document.getElementById('f-codex-model');
-            if (cxModelIn) {
-              cxModelIn.placeholder = L().fCodexModelPh(data.codex.defaults?.model || '');
-            }
+            syncCodexCatalogUI(data.codex);
           }
           populateDispatchModelSelect();
         }
@@ -3727,6 +3887,9 @@
       if (currentTab !== 'threads') {
         document.getElementById('tab-threads').click();
       }
+      codexFormDirty = false;
+      applyCodexDefaultsToForm({ force: true });
+      renderCodexDefaultsBar();
       refreshModelOptions();
       document.getElementById('f-title').focus();
     }
@@ -4002,6 +4165,60 @@
       syncDispatchEngineUI();
     });
   }
+  for (const cxFieldId of ['f-codex-model', 'f-codex-effort', 'f-codex-fast']) {
+    const el = document.getElementById(cxFieldId);
+    if (el) {
+      el.addEventListener('change', () => {
+        codexFormDirty = true;
+      });
+    }
+  }
+  const elBtnSaveCodexDef = document.getElementById('btn-save-codex-defaults');
+  const elBtnResetCodexDef = document.getElementById('btn-reset-codex-defaults');
+  async function persistCodexDefaults({ reset = false } = {}) {
+    const t = L();
+    const model = reset ? '' : document.getElementById('f-codex-model')?.value.trim() || '';
+    const effort = reset ? '' : document.getElementById('f-codex-effort')?.value || '';
+    const fast = reset ? false : Boolean(document.getElementById('f-codex-fast')?.checked);
+    const isEffectivelyReset = reset || (!model && !effort && !fast);
+    if (elBtnSaveCodexDef) {
+      elBtnSaveCodexDef.disabled = true;
+      elBtnSaveCodexDef.textContent = t.codexSavingDefBtn;
+    }
+    if (elBtnResetCodexDef) elBtnResetCodexDef.disabled = true;
+    try {
+      const res = await postApi('/api/codex_defaults', '/api/codex_defaults_get', {
+        model,
+        effort,
+        fast,
+        reset: isEffectivelyReset,
+      });
+      if (!res?.ok) {
+        flashToast(res?.error || t.codexSaveDefErrToast, 'err', 3600);
+        return;
+      }
+      if (res.codex) {
+        syncCodexCatalogUI(res.codex, { forceApplyForm: true });
+      }
+      flashToast(
+        isEffectivelyReset ? t.codexResetDefToast : t.codexSavedDefToast,
+        'ok',
+        2800,
+      );
+    } catch (err) {
+      flashToast(err?.message || t.codexSaveDefErrToast, 'err', 3600);
+    } finally {
+      if (elBtnSaveCodexDef) elBtnSaveCodexDef.disabled = false;
+      if (elBtnResetCodexDef) elBtnResetCodexDef.disabled = false;
+      renderCodexDefaultsBar();
+    }
+  }
+  if (elBtnSaveCodexDef) {
+    elBtnSaveCodexDef.addEventListener('click', () => persistCodexDefaults({ reset: false }));
+  }
+  if (elBtnResetCodexDef) {
+    elBtnResetCodexDef.addEventListener('click', () => persistCodexDefaults({ reset: true }));
+  }
   const elModelSelect = document.getElementById('f-model');
   if (elModelSelect) {
     elModelSelect.addEventListener('change', () => {
@@ -4035,12 +4252,17 @@
     const title = document.getElementById('f-title').value.trim();
     const taskPrompt = document.getElementById('f-prompt').value.trim();
     const branch = engine === 'codex' ? '' : document.getElementById('f-branch').value.trim();
+    const rawCodexModel = document.getElementById('f-codex-model')?.value.trim() || '';
     const model =
       engine === 'codex'
-        ? document.getElementById('f-codex-model')?.value.trim() || ''
+        ? rawCodexModel || (codexFormDirty ? 'config' : '')
         : document.getElementById('f-model').value;
     const taskKind = engine === 'codex' ? document.getElementById('f-codex-kind')?.value || 'implement' : 'implement';
-    const effort = engine === 'codex' ? document.getElementById('f-codex-effort')?.value || '' : '';
+    const rawCodexEffort = document.getElementById('f-codex-effort')?.value || '';
+    const effort =
+      engine === 'codex'
+        ? rawCodexEffort || (codexFormDirty ? 'config' : '')
+        : '';
     const fast = engine === 'codex' && Boolean(document.getElementById('f-codex-fast')?.checked);
     const structuredHandoff =
       engine === 'codex' && Boolean(document.getElementById('f-codex-handoff')?.checked);

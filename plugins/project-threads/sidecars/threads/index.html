@@ -107,8 +107,10 @@
             </div>
           </div>
           <div class="field">
-            <label id="lbl-f-codex-model" for="f-codex-model">Codex 模型（可选）</label>
-            <input id="f-codex-model" type="text" placeholder="留空默认沿用 Codex 全局配置" autocomplete="off">
+            <label id="lbl-f-codex-model" for="f-codex-model">Codex 模型</label>
+            <select id="f-codex-model">
+              <option value="" selected>沿用 Codex 全局配置</option>
+            </select>
           </div>
           <div class="codex-toggles">
             <label class="chk">
@@ -119,6 +121,13 @@
               <input id="f-codex-handoff" type="checkbox">
               <span id="lbl-f-codex-handoff">强结构化回执</span>
             </label>
+          </div>
+          <div id="codex-defaults-bar" class="codex-defaults-bar">
+            <span id="codex-defaults-summary" class="codex-defaults-summary">当前默认：沿用全局配置</span>
+            <div class="codex-defaults-actions">
+              <button type="button" id="btn-save-codex-defaults" class="row-act">设为默认</button>
+              <button type="button" id="btn-reset-codex-defaults" class="row-act" hidden>恢复全局</button>
+            </div>
           </div>
         </div>
         <label class="chk">

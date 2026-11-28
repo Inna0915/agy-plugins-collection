@@ -11,7 +11,11 @@ import {
   extractCodexTelemetry,
   formatCodexErrorBanner,
   formatCodexHandoffMarkdown,
+  readCodexAvailableModels,
   readCodexConfigDefaults,
+  readCodexPluginDefaults,
+  resolveEffectiveCodexDefaults,
+  saveCodexPluginDefaults,
 } from '../lib/codex-adapter.mjs';
 import {
   archiveThread,
@@ -20,6 +24,7 @@ import {
   getThreadDetail,
   getThreadMessages,
   loadRegistry,
+  saveCodexDefaults,
   saveRegistry,
   sendThreadMessage,
   syncThreads,
@@ -521,4 +526,177 @@ test('end-to-end Codex thread lifecycle: dispatch, live events, auto callback, f
   const dispatchTool = tools.find((x) => x.name === 'dispatch_thread');
   assert.deepEqual(dispatchTool.inputSchema.properties.engine.enum, ['antigravity', 'codex']);
   assert.deepEqual(dispatchTool.inputSchema.properties.taskKind.enum, ['implement', 'review', 'plan']);
+});
+
+test('dedicated plugin Codex defaults override config.toml independently without modifying Codex Desktop config', async (t) => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'pt-codex-plugindef-'));
+  const geminiDir = join(tempRoot, '.gemini');
+  const appDataDir = join(geminiDir, 'antigravity');
+  const codexHome = join(tempRoot, '.codex');
+  const scriptsDir = join(tempRoot, 'codex-scripts');
+  const projectDir = join(tempRoot, 'demo-proj');
+  mkdirSync(appDataDir, { recursive: true });
+  mkdirSync(codexHome, { recursive: true });
+  mkdirSync(scriptsDir, { recursive: true });
+  mkdirSync(projectDir, { recursive: true });
+
+  const originalConfigToml = 'model = "gpt-6.2-astra"\nmodel_reasoning_effort = "xhigh"\nservice_tier = "priority"\n';
+  writeFileSync(join(codexHome, 'config.toml'), originalConfigToml, 'utf8');
+  writeFileSync(
+    join(codexHome, 'models_cache.json'),
+    JSON.stringify({
+      models: [
+        {
+          slug: 'gpt-6.2-sol',
+          display_name: 'GPT-6.2-Sol',
+          visibility: 'list',
+          default_reasoning_level: 'low',
+          supported_reasoning_levels: [{ effort: 'low' }, { effort: 'high' }, { effort: 'xhigh' }],
+        },
+        {
+          slug: 'gpt-6.2-astra',
+          display_name: 'GPT-6.2-Astra',
+          visibility: 'list',
+          default_reasoning_level: 'low',
+          supported_reasoning_levels: [{ effort: 'high' }, { effort: 'xhigh' }],
+        },
+        {
+          slug: 'codex-auto-review',
+          display_name: 'Codex Auto Review',
+          visibility: 'hide',
+        },
+      ],
+    }),
+    'utf8',
+  );
+
+  writeFileSync(join(scriptsDir, 'Invoke-CodexTask.ps1'), '# mock\n', 'utf8');
+  const argsLog = join(tempRoot, 'captured-args.jsonl');
+  const mockPwsh = writeMockAgentApi(
+    tempRoot,
+    'mock-pwsh-def',
+    `import { appendFileSync } from 'node:fs';
+appendFileSync(${JSON.stringify(argsLog)}, JSON.stringify(process.argv.slice(2)) + '\\n', 'utf8');
+process.exit(0);
+`,
+  );
+
+  const prevEnv = {
+    ANTIGRAVITY_GEMINI_DIR: process.env.ANTIGRAVITY_GEMINI_DIR,
+    ANTIGRAVITY_APP_DATA_DIR: process.env.ANTIGRAVITY_APP_DATA_DIR,
+    ANTIGRAVITY_LS_ADDRESS: process.env.ANTIGRAVITY_LS_ADDRESS,
+    ANTIGRAVITY_CSRF_TOKEN: process.env.ANTIGRAVITY_CSRF_TOKEN,
+    CODEX_HOME: process.env.CODEX_HOME,
+    PROJECT_THREADS_CODEX_SCRIPTS_DIR: process.env.PROJECT_THREADS_CODEX_SCRIPTS_DIR,
+    PROJECT_THREADS_PWSH_EXE: process.env.PROJECT_THREADS_PWSH_EXE,
+    PROJECT_THREADS_CODEX_MODEL: process.env.PROJECT_THREADS_CODEX_MODEL,
+    PROJECT_THREADS_CODEX_EFFORT: process.env.PROJECT_THREADS_CODEX_EFFORT,
+  };
+  process.env.ANTIGRAVITY_GEMINI_DIR = geminiDir;
+  process.env.ANTIGRAVITY_APP_DATA_DIR = appDataDir;
+  process.env.ANTIGRAVITY_LS_ADDRESS = '';
+  process.env.ANTIGRAVITY_CSRF_TOKEN = '';
+  process.env.CODEX_HOME = codexHome;
+  process.env.PROJECT_THREADS_CODEX_SCRIPTS_DIR = scriptsDir;
+  process.env.PROJECT_THREADS_PWSH_EXE = mockPwsh;
+  delete process.env.PROJECT_THREADS_CODEX_MODEL;
+  delete process.env.PROJECT_THREADS_CODEX_EFFORT;
+
+  t.after(() => {
+    for (const [k, v] of Object.entries(prevEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  // 1. Live Codex model catalog skips hidden models
+  const models = readCodexAvailableModels();
+  assert.deepEqual(
+    models.map((m) => m.id),
+    ['gpt-6.2-sol', 'gpt-6.2-astra'],
+  );
+  assert.equal(models[0].label, 'GPT-6.2-Sol');
+
+  // 2. Initially unconfigured -> falls back to config.toml
+  assert.equal(readCodexPluginDefaults().configured, false);
+  const effBefore = resolveEffectiveCodexDefaults();
+  assert.equal(effBefore.model, 'gpt-6.2-astra');
+  assert.equal(effBefore.effort, 'xhigh');
+  assert.equal(effBefore.modelSource, 'config');
+  assert.equal(effBefore.hasPluginOverride, false);
+
+  // 3. Save dedicated plugin defaults via saveCodexDefaults()
+  const savedInfo = saveCodexDefaults({ model: 'gpt-6.2-sol', effort: 'high', fast: true });
+  assert.equal(savedInfo.pluginDefaults.configured, true);
+  assert.equal(savedInfo.pluginDefaults.model, 'gpt-6.2-sol');
+  assert.equal(savedInfo.pluginDefaults.effort, 'high');
+  assert.equal(savedInfo.pluginDefaults.fast, true);
+  assert.equal(savedInfo.effectiveDefaults.model, 'gpt-6.2-sol');
+  assert.equal(savedInfo.effectiveDefaults.effort, 'high');
+  assert.equal(savedInfo.effectiveDefaults.fast, true);
+  assert.equal(savedInfo.effectiveDefaults.modelSource, 'plugin');
+  assert.equal(savedInfo.effectiveDefaults.hasPluginOverride, true);
+  assert.equal(readFileSync(join(codexHome, 'config.toml'), 'utf8'), originalConfigToml);
+
+  // 4. dispatchThread without model/effort/fast automatically uses saved plugin defaults
+  const thDefault = await dispatchThread({
+    workspacePath: projectDir,
+    engine: 'codex',
+    title: 'Use saved plugin defaults',
+    taskPrompt: 'Check defaults',
+  });
+  assert.equal(thDefault.model, 'gpt-6.2-sol');
+  assert.equal(thDefault.codex.requestedModel, 'gpt-6.2-sol');
+  assert.equal(thDefault.codex.requestedEffort, 'high');
+  assert.equal(thDefault.codex.fast, true);
+  assert.equal(thDefault.modelDisplayName, 'gpt-6.2-sol (high · fast)');
+
+  // 5. Explicit per-task override wins over plugin defaults (including fast: false and 'config' fallback)
+  const thOverride = await dispatchThread({
+    workspacePath: projectDir,
+    engine: 'codex',
+    title: 'Explicit override',
+    taskPrompt: 'Use config.toml once',
+    model: 'config',
+    effort: 'low',
+    fast: false,
+  });
+  assert.equal(thOverride.model, 'gpt-6.2-astra');
+  assert.equal(thOverride.codex.requestedModel, '');
+  assert.equal(thOverride.codex.requestedEffort, 'low');
+  assert.equal(thOverride.codex.fast, false);
+
+  // Wait for both detached mock-pwsh runners to log their CLI args
+  const logged = await waitFor(() => {
+    if (!existsSync(argsLog)) return null;
+    const lines = readFileSync(argsLog, 'utf8').trim().split(/\r?\n/).filter(Boolean);
+    return lines.length >= 2 ? lines.map((l) => JSON.parse(l)) : null;
+  }, 10000);
+  assert.ok(logged && logged.length >= 2);
+  const defCall = logged.find((a) => a.includes('gpt-6.2-sol'));
+  assert.ok(defCall, 'Default dispatch must pass -Model gpt-6.2-sol');
+  assert.ok(defCall.includes('-Effort') && defCall.includes('high'));
+  assert.ok(defCall.includes('-Fast'));
+  const ovrCall = logged.find((a) => a.includes('low'));
+  assert.ok(ovrCall, 'Override dispatch must pass -Effort low');
+  assert.equal(ovrCall.includes('-Model'), false, 'model="config" must omit -Model to use config.toml');
+  assert.equal(ovrCall.includes('-Fast'), false, 'explicit fast=false must omit -Fast');
+
+  // 6. Reset clears codex-defaults.json cleanly back to config.toml
+  const resetInfo = saveCodexDefaults({ reset: true });
+  assert.equal(resetInfo.pluginDefaults.configured, false);
+  assert.equal(resetInfo.effectiveDefaults.model, 'gpt-6.2-astra');
+  assert.equal(resetInfo.effectiveDefaults.modelSource, 'config');
+  assert.equal(existsSync(saveCodexPluginDefaults({ reset: true }).path), false);
+
+  // 7. Static checks for Sidecar UI & API wiring
+  const indexHtml = readFileSync(new URL('../sidecars/threads/index.html', import.meta.url), 'utf8');
+  const appJs = readFileSync(new URL('../sidecars/threads/app.js', import.meta.url), 'utf8');
+  const mainMjs = readFileSync(new URL('../sidecars/threads/main.mjs', import.meta.url), 'utf8');
+  assert.match(indexHtml, /<select id="f-codex-model">/);
+  assert.match(indexHtml, /id="btn-save-codex-defaults"/);
+  assert.match(indexHtml, /id="btn-reset-codex-defaults"/);
+  assert.match(appJs, /\/api\/codex_defaults/);
+  assert.match(mainMjs, /registerDualApi\('\/api\/codex_defaults'/);
 });

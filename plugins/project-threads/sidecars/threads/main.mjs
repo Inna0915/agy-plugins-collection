@@ -15,6 +15,7 @@ import {
   readProjectMemory,
   resolveAppLocale,
   resolveProjectScope,
+  saveCodexDefaults,
   sendThreadMessage,
   syncCompletionToCoordinator,
   syncThreads,
@@ -120,6 +121,30 @@ async function handleModels(data = {}) {
   }
 }
 registerDualApi('/api/models', handleModels);
+
+async function handleCodexDefaults(data = {}) {
+  try {
+    const reset = parseBool(data.reset, false);
+    const fastVal =
+      data.fast === undefined || data.fast === null || data.fast === ''
+        ? null
+        : parseBool(data.fast, false);
+    const codex = saveCodexDefaults({
+      model: data.model || '',
+      effort: data.effort || '',
+      fast: fastVal,
+      reset,
+    });
+    return {
+      ok: true,
+      locale: resolveAppLocale(),
+      codex,
+    };
+  } catch (err) {
+    return { ok: false, error: err.message, locale: resolveAppLocale() };
+  }
+}
+registerDualApi('/api/codex_defaults', handleCodexDefaults);
 
 app.api(
   '/api/thread_messages',
@@ -230,7 +255,10 @@ async function handleDispatch(data = {}) {
       engine: data.engine || 'antigravity',
       taskKind: data.taskKind || 'implement',
       effort: data.effort || '',
-      fast: parseBool(data.fast, false),
+      fast:
+        data.fast === undefined || data.fast === null || data.fast === ''
+          ? undefined
+          : parseBool(data.fast, false),
       structuredHandoff: parseBool(data.structuredHandoff, false),
     });
     return { ok: true, locale: resolveAppLocale(), thread };

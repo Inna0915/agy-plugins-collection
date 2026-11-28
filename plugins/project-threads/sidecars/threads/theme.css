@@ -3609,6 +3609,47 @@ button.row-act.act-clean-wt:hover:not(:disabled) {
   margin: 0;
 }
 
+.codex-defaults-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  border-radius: var(--pt-r-md);
+  background: var(--pt-surface-2);
+  border: 1px solid var(--pt-line);
+  font-size: var(--pt-text-2xs);
+  color: var(--pt-sub);
+}
+
+.codex-defaults-bar.has-custom {
+  background: var(--pt-accent-soft);
+  border-color: color-mix(in srgb, var(--pt-accent) 36%, var(--pt-line));
+  color: var(--pt-fg-2);
+}
+
+.codex-defaults-summary {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-defaults-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.codex-defaults-actions .row-act {
+  height: 20px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
 .engine-pill {
   display: inline-flex;
   align-items: center;

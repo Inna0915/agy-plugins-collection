@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -134,15 +134,165 @@ export function readCodexConfigDefaults() {
   return defaults;
 }
 
+export function getCodexPluginDefaultsPath() {
+  return join(getStateDir(), 'codex-defaults.json');
+}
+
+export function readCodexPluginDefaults() {
+  const cfgPath = getCodexPluginDefaultsPath();
+  let model = '';
+  let effort = '';
+  let fast = null;
+  let updatedAt = '';
+
+  if (existsSync(cfgPath)) {
+    try {
+      const parsed = JSON.parse(readFileSync(cfgPath, 'utf8'));
+      if (parsed && typeof parsed === 'object') {
+        const rawModel = String(parsed.model || '').trim();
+        if (rawModel && !/^(?:inherit|auto|default|config)$/i.test(rawModel)) {
+          model = rawModel;
+        }
+        effort = normalizeCodexEffort(parsed.effort);
+        if (typeof parsed.fast === 'boolean') {
+          fast = parsed.fast;
+        }
+        updatedAt = String(parsed.updatedAt || '').trim();
+      }
+    } catch {
+      // Ignore corrupt defaults file
+    }
+  }
+
+  const envModel = String(process.env.PROJECT_THREADS_CODEX_MODEL || '').trim();
+  const envEffort = normalizeCodexEffort(process.env.PROJECT_THREADS_CODEX_EFFORT);
+  if (!model && envModel && !/^(?:inherit|auto|default|config)$/i.test(envModel)) {
+    model = envModel;
+  }
+  if (!effort && envEffort) {
+    effort = envEffort;
+  }
+
+  const configured = Boolean(model || effort || fast === true);
+  return {
+    path: cfgPath,
+    configured,
+    model,
+    effort,
+    fast: fast === true ? true : false,
+    fastExplicit: typeof fast === 'boolean',
+    updatedAt,
+  };
+}
+
+export function saveCodexPluginDefaults({ model = '', effort = '', fast = null, reset = false } = {}) {
+  const cfgPath = getCodexPluginDefaultsPath();
+  const rawModel = String(model || '').trim();
+  const cleanModel =
+    !reset && rawModel && !/^(?:inherit|auto|default|config)$/i.test(rawModel) ? rawModel : '';
+  const cleanEffort = !reset ? normalizeCodexEffort(effort) : '';
+  const cleanFast = !reset && fast === true;
+
+  if (reset || (!cleanModel && !cleanEffort && !cleanFast)) {
+    try {
+      if (existsSync(cfgPath)) unlinkSync(cfgPath);
+    } catch {
+      // Ignore removal error
+    }
+    return readCodexPluginDefaults();
+  }
+
+  const payload = {
+    model: cleanModel,
+    effort: cleanEffort,
+    fast: cleanFast,
+    updatedAt: new Date().toISOString(),
+  };
+  mkdirSync(dirname(cfgPath), { recursive: true });
+  const tmpPath = `${cfgPath}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmpPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  try {
+    renameSync(tmpPath, cfgPath);
+  } catch {
+    writeFileSync(cfgPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    try {
+      if (existsSync(tmpPath)) unlinkSync(tmpPath);
+    } catch {
+      // Ignore cleanup error
+    }
+  }
+  return readCodexPluginDefaults();
+}
+
+export function readCodexAvailableModels() {
+  const codexHome = process.env.CODEX_HOME || join(homedir(), '.codex');
+  const cachePath = join(codexHome, 'models_cache.json');
+  if (!existsSync(cachePath)) return [];
+  try {
+    const raw = JSON.parse(readFileSync(cachePath, 'utf8'));
+    const list = Array.isArray(raw) ? raw : Array.isArray(raw?.models) ? raw.models : [];
+    const seen = new Set();
+    const out = [];
+    for (const item of list) {
+      if (!item || typeof item !== 'object') continue;
+      if (String(item.visibility || '').toLowerCase() === 'hide') continue;
+      const id = String(item.slug || item.id || item.model || '').trim();
+      if (!id || seen.has(id.toLowerCase())) continue;
+      seen.add(id.toLowerCase());
+      const label = String(item.display_name || item.name || id).trim();
+      const defaultEffort = normalizeCodexEffort(item.default_reasoning_level);
+      const efforts = Array.isArray(item.supported_reasoning_levels)
+        ? item.supported_reasoning_levels
+            .map((lv) => normalizeCodexEffort(typeof lv === 'string' ? lv : lv?.effort))
+            .filter(Boolean)
+        : [];
+      out.push({ id, label, defaultEffort, efforts });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+export function resolveEffectiveCodexDefaults() {
+  const configDefaults = readCodexConfigDefaults();
+  const pluginDefaults = readCodexPluginDefaults();
+  return {
+    model: pluginDefaults.model || configDefaults.model || '',
+    effort: pluginDefaults.effort || configDefaults.effort || '',
+    fast: pluginDefaults.fast === true,
+    modelSource: pluginDefaults.model ? 'plugin' : configDefaults.model ? 'config' : 'none',
+    effortSource: pluginDefaults.effort ? 'plugin' : configDefaults.effort ? 'config' : 'none',
+    fastSource: pluginDefaults.fast === true ? 'plugin' : 'default',
+    hasPluginOverride: pluginDefaults.configured,
+    pluginDefaults,
+    configDefaults,
+  };
+}
+
 export function getCodexEngineInfo() {
   const scriptsDir = resolveCodexScriptsDir();
   const pwshExe = resolvePwshExe();
   const defaults = readCodexConfigDefaults();
+  const pluginDefaults = readCodexPluginDefaults();
+  const effectiveDefaults = resolveEffectiveCodexDefaults();
+  const models = readCodexAvailableModels();
   return {
     available: Boolean(scriptsDir),
     scriptsDir,
     pwshExe,
     defaults,
+    pluginDefaults,
+    effectiveDefaults: {
+      model: effectiveDefaults.model,
+      effort: effectiveDefaults.effort,
+      fast: effectiveDefaults.fast,
+      modelSource: effectiveDefaults.modelSource,
+      effortSource: effectiveDefaults.effortSource,
+      fastSource: effectiveDefaults.fastSource,
+      hasPluginOverride: effectiveDefaults.hasPluginOverride,
+    },
+    models,
   };
 }
 
