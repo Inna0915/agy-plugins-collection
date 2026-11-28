@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Project Threads</title>
+  <title>项目线程</title>
   <script src="/preload.js"></script>
   <link rel="stylesheet" href="/theme.css">
 </head>
@@ -13,34 +13,34 @@
   <section id="board-screen" class="screen">
     <header class="pt-header">
       <div class="header-row">
-        <h1 id="panel-title" class="header-title">Project Threads</h1>
+        <h1 id="panel-title" class="header-title">项目线程</h1>
         <div class="header-actions">
           <span id="toast" class="toast" role="status" aria-live="polite"></span>
-          <span id="live-pill" class="live" role="status" title="Updates automatically">
+          <span id="live-pill" class="live" role="status" title="自动实时同步">
             <span class="live-dot" aria-hidden="true"></span>
-            <span id="live-label">Live</span>
+            <span id="live-label">实时</span>
           </span>
           <button type="button" id="btn-bind" class="ghost" hidden></button>
           <button type="button" id="btn-open-coord" class="coord-jump-btn" hidden></button>
           <button type="button" id="btn-new" class="pill-action-btn">
             <svg class="ico ico-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            <span id="lbl-new">New</span>
+            <span id="lbl-new">新建</span>
           </button>
         </div>
       </div>
 
       <nav class="nav-tabs" role="tablist">
         <button type="button" role="tab" class="nav-tab active" data-tab="threads" id="tab-threads" aria-selected="true">
-          <span id="lbl-tab-threads">Threads</span>
+          <span id="lbl-tab-threads">线程</span>
           <span id="badge-waiting" class="tab-badge warn tabular"></span>
           <span id="cnt-threads" class="tab-count tabular"></span>
         </button>
         <button type="button" role="tab" class="nav-tab" data-tab="library" id="tab-library" aria-selected="false">
-          <span id="lbl-tab-library">Library</span>
+          <span id="lbl-tab-library">知识库</span>
           <span id="cnt-library" class="tab-count tabular"></span>
         </button>
         <button type="button" role="tab" class="nav-tab" data-tab="archived" id="tab-archived" aria-selected="false">
-          <span id="lbl-tab-archived">Archived</span>
+          <span id="lbl-tab-archived">已归档</span>
           <span id="cnt-archived" class="tab-count tabular"></span>
         </button>
       </nav>
@@ -50,13 +50,13 @@
       <!-- Slide-Down Dispatch Drawer -->
       <div id="dispatch-drawer" class="drawer">
         <div class="drawer-hdr">
-          <span id="lbl-drawer-title" class="drawer-title">New background thread</span>
-          <button type="button" id="btn-close-drawer" class="icon-ghost-btn" title="Close">
+          <span id="lbl-drawer-title" class="drawer-title">新建后台工作线程</span>
+          <button type="button" id="btn-close-drawer" class="icon-ghost-btn" title="关闭">
             <svg class="ico ico-sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
         <div class="field">
-          <label id="lbl-f-engine">Engine</label>
+          <label id="lbl-f-engine">执行引擎</label>
           <div id="f-engine-seg" class="engine-seg" role="radiogroup">
             <button type="button" class="engine-seg-btn active" data-engine="antigravity" id="btn-eng-agy" aria-checked="true">Antigravity</button>
             <button type="button" class="engine-seg-btn" data-engine="codex" id="btn-eng-codex" aria-checked="false">Codex</button>
@@ -64,19 +64,19 @@
           <input id="f-engine" type="hidden" value="antigravity">
         </div>
         <div class="field">
-          <label id="lbl-f-title" for="f-title">Thread title</label>
+          <label id="lbl-f-title" for="f-title">线程标题</label>
           <input id="f-title" type="text" autocomplete="off">
         </div>
         <div id="f-agy-opts" class="row2 field">
           <div>
-            <label id="lbl-f-branch" for="f-branch">Git branch (optional)</label>
+            <label id="lbl-f-branch" for="f-branch">Git 分支名（可选）</label>
             <input id="f-branch" type="text" placeholder="thread/thr-xxx-..." autocomplete="off">
           </div>
           <div>
-            <label id="lbl-f-model" for="f-model">Model</label>
+            <label id="lbl-f-model" for="f-model">模型</label>
             <select id="f-model">
               <option value="gemini-4-neon-xhigh" selected>Gemini 4 Neon (XHigh)</option>
-              <option value="inherit">Follow Coordinator</option>
+              <option value="inherit">跟随当前总控</option>
               <option value="pro">Pro</option>
               <option value="flash">Flash</option>
               <option value="flash_lite">Flash Lite</option>
@@ -86,38 +86,38 @@
         <div id="f-codex-opts" class="codex-opts" hidden>
           <div class="row2 field">
             <div>
-              <label id="lbl-f-codex-kind" for="f-codex-kind">Task kind</label>
+              <label id="lbl-f-codex-kind" for="f-codex-kind">任务类型</label>
               <select id="f-codex-kind">
-                <option value="implement" selected>Implement (writable)</option>
-                <option value="review">Review (read-only)</option>
-                <option value="plan">Plan (read-only)</option>
+                <option value="implement" selected>实现（可写 · 自动隔离工作树）</option>
+                <option value="review">审查（硬锁只读 · 原位）</option>
+                <option value="plan">双盲方案（硬锁只读 · 原位）</option>
               </select>
             </div>
             <div>
-              <label id="lbl-f-codex-effort" for="f-codex-effort">Reasoning effort</label>
+              <label id="lbl-f-codex-effort" for="f-codex-effort">思考档位</label>
               <select id="f-codex-effort">
-                <option value="" selected>Default (config.toml)</option>
-                <option value="high">high</option>
-                <option value="xhigh">xhigh</option>
-                <option value="max">max</option>
-                <option value="medium">medium</option>
-                <option value="low">low</option>
-                <option value="ultra">ultra</option>
+                <option value="" selected>默认（沿用全局配置）</option>
+                <option value="high">高（high）</option>
+                <option value="xhigh">超高（xhigh）</option>
+                <option value="max">极高（max）</option>
+                <option value="medium">中（medium）</option>
+                <option value="low">低（low）</option>
+                <option value="ultra">极限（ultra）</option>
               </select>
             </div>
           </div>
           <div class="field">
-            <label id="lbl-f-codex-model" for="f-codex-model">Codex model (optional)</label>
-            <input id="f-codex-model" type="text" placeholder="Default (config.toml)" autocomplete="off">
+            <label id="lbl-f-codex-model" for="f-codex-model">Codex 模型（可选）</label>
+            <input id="f-codex-model" type="text" placeholder="留空默认沿用 Codex 全局配置" autocomplete="off">
           </div>
           <div class="codex-toggles">
             <label class="chk">
               <input id="f-codex-fast" type="checkbox">
-              <span id="lbl-f-codex-fast">Fast tier (-Fast)</span>
+              <span id="lbl-f-codex-fast">高速档位</span>
             </label>
             <label class="chk">
               <input id="f-codex-handoff" type="checkbox">
-              <span id="lbl-f-codex-handoff">Structured handoff</span>
+              <span id="lbl-f-codex-handoff">强结构化回执</span>
             </label>
           </div>
         </div>
@@ -126,12 +126,12 @@
           <span id="lbl-f-wt"></span>
         </label>
         <div class="field">
-          <label id="lbl-f-prompt" for="f-prompt">Task instructions</label>
+          <label id="lbl-f-prompt" for="f-prompt">任务说明</label>
           <textarea id="f-prompt" rows="3"></textarea>
         </div>
         <div class="drawer-actions">
-          <button type="button" id="btn-submit-dispatch" class="btn-solid">Start thread</button>
-          <button type="button" id="btn-cancel-dispatch" class="btn-secondary">Cancel</button>
+          <button type="button" id="btn-submit-dispatch" class="btn-solid">启动线程</button>
+          <button type="button" id="btn-cancel-dispatch" class="btn-secondary">取消</button>
           <span id="dispatch-msg" class="err"></span>
         </div>
       </div>
@@ -140,16 +140,16 @@
       <div id="threads-pane">
         <div id="goal-card" class="pt-card goal-card">
           <div class="goal-kicker">
-            <span id="goal-kicker-text">PROJECT</span>
+            <span id="goal-kicker-text">当前项目</span>
             <div class="goal-actions">
               <button type="button" id="btn-card-coord" class="coord-card-btn" hidden></button>
               <button type="button" id="btn-sort" class="sort-chip" hidden>
-                <span id="lbl-sort">Status</span>
+                <span id="lbl-sort">按状态</span>
                 <svg class="ico ico-xs" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
               </button>
             </div>
           </div>
-          <div id="goal-title" class="goal-title">Current Project</div>
+          <div id="goal-title" class="goal-title">当前项目</div>
           <div id="goal-sub" class="goal-sub"></div>
           <div id="goal-metrics" class="ctx-metrics-strip goal-metrics" hidden></div>
         </div>
@@ -163,7 +163,7 @@
           <div class="lib-card-hdr">
             <span class="lib-card-title">
               <svg class="ico" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-              <span id="lbl-lib-mem">Shared Project Memory</span>
+              <span id="lbl-lib-mem">共享项目记忆</span>
             </span>
             <span id="mem-path" class="lib-path-pill"></span>
           </div>
@@ -176,7 +176,7 @@
 
         <div>
           <div class="lib-sec-title">
-            <span id="lbl-lib-wt">Active Git Worktrees</span>
+            <span id="lbl-lib-wt">活跃工作树分支</span>
             <span id="wt-count" class="mono tabular"></span>
           </div>
           <div id="lib-wt-list"></div>
@@ -196,7 +196,7 @@
       <div class="chat-hdr-left">
         <button type="button" id="btn-back" class="back-btn">
           <svg class="ico" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
-          <span id="lbl-back">Threads</span>
+          <span id="lbl-back">线程</span>
           <span id="other-running-badge" class="other-running-pill tabular"></span>
         </button>
         <span id="chat-tid" class="hdr-tid"></span>
@@ -240,7 +240,7 @@
     <div id="pt-modal" class="pt-modal" role="dialog" aria-modal="true" aria-labelledby="pt-modal-title">
       <div class="pt-modal-hdr">
         <span id="pt-modal-title" class="pt-modal-title"></span>
-        <button type="button" id="pt-modal-close" class="icon-ghost-btn" aria-label="Close">
+        <button type="button" id="pt-modal-close" class="icon-ghost-btn" aria-label="关闭">
           <svg class="ico ico-sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>

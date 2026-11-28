@@ -259,6 +259,24 @@
       roleCodexImpl: 'Codex · Impl',
       roleCodexReview: 'Codex · Review',
       roleCodexPlan: 'Codex · Plan',
+      relShort: (val, unit) => `${val}${unit}`,
+      effortOpt: {
+        low: 'low',
+        medium: 'medium',
+        high: 'high',
+        xhigh: 'xhigh',
+        max: 'max',
+        ultra: 'ultra',
+      },
+      codeLangDefault: 'code',
+      wtFallback: 'worktree',
+      errGeneric: 'Error',
+      errRequestFailed: 'Request failed',
+      taskRunningSuffix: ' running',
+      taskFinishedSuffix: ' finished',
+      taskCompletedTag: 'Completed',
+      taskCompletionSynced: 'Thread completion synced',
+      bgTaskFallback: 'Background task',
     },
 
     'zh-CN': {
@@ -360,69 +378,69 @@
       actCopyPath: '复制路径',
       actOpenThread: '打开会话',
       actArchive: '归档',
-      actCleanWt: '清理 Worktree',
-      actCleanWtTip: '移除残留的 Git Worktree 目录与已合并分支',
+      actCleanWt: '清理工作树',
+      actCleanWtTip: '移除残留的 Git 工作树目录与已合并分支',
       copiedPath: '已复制路径',
       copiedCode: '已复制',
       copyBtn: '复制',
       archivedToast: '已归档',
-      archivedWtAndBranchToast: '已归档 · 已清理 Worktree 及分支',
-      archivedWtToast: '已归档 · 已清理 Worktree',
-      archivedPrunedToast: '已归档 · 已清理失效 Worktree 记录',
-      archivedKeptDirtyToast: '已归档 · 保留 Worktree（存在未提交修改）',
-      archivedKeptUnmergedToast: '已归档 · 保留 Worktree（存在未合并提交）',
-      archivedWtErrToast: (e) => `已归档 · Worktree 未移除（${e}）`,
+      archivedWtAndBranchToast: '已归档 · 已清理工作树及分支',
+      archivedWtToast: '已归档 · 已清理工作树',
+      archivedPrunedToast: '已归档 · 已清理失效工作树记录',
+      archivedKeptDirtyToast: '已归档 · 保留工作树（存在未提交修改）',
+      archivedKeptUnmergedToast: '已归档 · 保留工作树（存在未合并提交）',
+      archivedWtErrToast: (e) => `已归档 · 工作树未移除（${e}）`,
       archiveErrToast: '归档失败',
-      cleanedWtAndBranchToast: '已清理 Worktree 及分支',
-      cleanedWtToast: '已清理 Worktree',
-      cleanedPrunedToast: '已清理失效 Worktree 记录',
-      keptDirtyToast: '未移除：Worktree 存在未提交修改',
+      cleanedWtAndBranchToast: '已清理工作树及分支',
+      cleanedWtToast: '已清理工作树',
+      cleanedPrunedToast: '已清理失效工作树记录',
+      keptDirtyToast: '未移除：工作树存在未提交修改',
       keptUnmergedToast: '未移除：分支存在未合并提交',
-      cleanupErrToast: '清理 Worktree 失败',
+      cleanupErrToast: '清理工作树失败',
       modalArchiveTitle: '归档工作线程',
-      modalCleanTitle: '清理 Git Worktree',
+      modalCleanTitle: '清理 Git 工作树',
       modalArchiveConfirm: '确认归档',
       modalArchiveForceConfirm: '强制归档并删除',
-      modalCleanConfirm: '清理 Worktree',
+      modalCleanConfirm: '清理工作树',
       modalCleanForceConfirm: '强制移除',
       modalWorking: '处理中…',
-      modalRemoveWtOpt: '同时移除 Git Worktree 目录并清理已合并分支',
+      modalRemoveWtOpt: '同时移除 Git 工作树目录并清理已合并分支',
       modalDelBranchOpt: '同时删除关联的线程 Git 分支',
-      modalForceWtOpt: '强制删除未提交或未合并的 Worktree（将丢弃未提交改动与未合并分支）',
+      modalForceWtOpt: '强制删除未提交或未合并的工作树（将丢弃未提交改动与未合并分支）',
       modalStatusClean: '干净且已合并',
       modalStatusMissing: '目录已不存在（将自动清理残留记录）',
       modalWarnDirtyUnmerged: (dirtyCount, aheadCount) => {
         const parts = [];
         if (dirtyCount > 0) parts.push(`${dirtyCount} 处未提交修改`);
         if (aheadCount > 0) parts.push(`${aheadCount} 个未合并提交`);
-        return `检测到 ${parts.join('和')}。默认会保留该 Worktree 目录以防丢失改动；如需强制删除请勾选下方选项。`;
+        return `检测到 ${parts.join('和')}。默认会保留该工作树目录以防丢失改动；如需强制删除请勾选下方选项。`;
       },
       emptyThreadsTitle: '当前项目暂无活跃线程',
       emptyThreadsBody:
         '在中央总控会话直接派发并行任务，或点击右上角「+ 新建」手动创建。',
       emptyArchived: '暂无已归档线程。',
-      emptyWt: '当前暂无独立 Git Worktree 目录。',
+      emptyWt: '当前暂无独立 Git 工作树目录。',
       fTitle: '线程标题',
       fTitlePh: '例如：排查提前建单未触发自动清关的前置条件',
       fBranch: 'Git 分支名（可选）',
       fModel: '模型',
-      modelFollowCoord: (lbl) => (lbl ? `跟随总控 (${lbl})` : '跟随当前总控'),
+      modelFollowCoord: (lbl) => (lbl ? `跟随总控（${lbl}）` : '跟随当前总控'),
       modelGrpConcrete: '具体模型',
       modelGrpTiers: '通用档位',
-      fWt: '创建独立 Git Worktree 隔离副本（纯只读代码排查可取消勾选）',
-      fWtDisabled: '当前项目未关联 Git 仓库（仅支持无 Worktree 后台会话）',
+      fWt: '创建独立 Git 工作树隔离副本（纯只读代码排查可取消勾选）',
+      fWtDisabled: '当前项目未关联 Git 仓库（仅支持无工作树后台会话）',
       fPrompt: '任务说明',
       fPromptPh: '输入排查目标、报错堆栈或修改要求…',
       fSubmit: '启动线程',
       fCreating: '正在启动…',
       fCancel: '取消',
       fErrReq: '请填写标题与任务说明',
-      libMem: '共享项目记忆 (Project Memory)',
-      libSave: '保存并广播至 Worktree',
+      libMem: '共享项目记忆',
+      libSave: '保存并广播至工作树',
       libSaving: '保存中…',
       libReload: '重新读取',
       libSaved: '已保存并同步至活跃分支',
-      libWt: '活跃 Git Worktree 分支',
+      libWt: '活跃工作树分支',
       wtClean: '干净',
       backThreads: '线程',
       syncCoord: '同步总控',
@@ -432,13 +450,13 @@
       syncNone: '已是最新',
       syncErr: '同步失败',
       popoutTip: '打开原生侧边会话标签页',
-      sendTip: '发送追问 (Enter)',
+      sendTip: '发送追问（回车）',
       runningStateTip: '线程正在后台执行（输入内容可继续追问）',
       briefTitle: '初始任务书',
       briefExpand: '展开全部',
       briefCollapse: '收起',
       briefCtx: '查看继承的项目记忆与分支规则',
-      userExpand: (n) => `展开全部 (${n} 行) ▾`,
+      userExpand: (n) => `展开全部（${n} 行） ▾`,
       userCollapse: '收起长文本 ▴',
       pendingSend: '已投递至后台线程…',
       sending: '正在投递…',
@@ -454,7 +472,7 @@
         mcp: '服务',
         tool: '工具',
       },
-      composerPh: '输入追问或补充指令（Enter 发送）…',
+      composerPh: '输入追问或补充指令（回车发送）…',
       modelSwitchTip: '切换下条消息使用的模型',
       modelPendingTip: '已选待生效 — 将在下条消息应用',
       modelMenuTitle: '选择模型',
@@ -484,26 +502,47 @@
       engineCodex: 'Codex',
       engineCodexUnavail: 'Codex（未找到调度脚本）',
       fCodexKind: '任务类型',
-      codexKindImpl: '实现（可写 · 自动 Worktree）',
+      codexKindImpl: '实现（可写 · 自动隔离工作树）',
       codexKindReview: '审查（硬锁只读 · 原位）',
       codexKindPlan: '双盲方案（硬锁只读 · 原位）',
       fCodexEffort: '思考档位',
-      codexDefaultCfg: (val) => (val ? `默认 (${val})` : '默认 (config.toml)'),
+      codexDefaultCfg: (val) => (val ? `默认（${val}）` : '默认（沿用全局配置）'),
       fCodexModel: 'Codex 模型（可选）',
-      fCodexModelPh: (m) => (m ? `留空沿用 config.toml (${m})` : '留空沿用 config.toml'),
-      fCodexFast: '高速档位 (-Fast)',
+      fCodexModelPh: (m) => (m ? `留空默认使用 ${m}（来自全局配置）` : '留空默认沿用 Codex 全局配置'),
+      fCodexFast: '高速档位',
       fCodexHandoff: '强结构化回执',
-      fWtCodexImpl: '自动创建隔离 Git Worktree（支持单仓与多仓聚合目录）',
-      fWtCodexReadOnly: 'review / plan 硬锁只读，原位检查不建 Worktree',
-      actOpenCodex: 'Codex ↗',
-      codexOpenTip: '在 Codex Desktop 中打开此会话',
-      codexOpenedToast: '已唤起 Codex Desktop',
-      codexOpenErrToast: '无法直接唤起 Codex Desktop',
+      fWtCodexImpl: '自动创建隔离 Git 工作树（支持单仓与多仓聚合目录）',
+      fWtCodexReadOnly: '审查 / 方案硬锁只读，原位检查不建工作树',
+      actOpenCodex: 'Codex 桌面端 ↗',
+      codexOpenTip: '在 Codex 桌面端中打开此会话',
+      codexOpenedToast: '已唤起 Codex 桌面端',
+      codexOpenErrToast: '无法直接唤起 Codex 桌面端',
       codexRunningInputTip: 'Codex 正在执行本轮，完成后即可发送追问续接',
       codexRunningComposerPh: 'Codex 正在执行本轮，完成后自动解锁追问续接…',
       roleCodexImpl: 'Codex · 实现',
       roleCodexReview: 'Codex · 审查',
       roleCodexPlan: 'Codex · 方案',
+      relShort: (val, unit) => {
+        const u = unit === 'm' ? '分' : unit === 'h' ? '小时' : '天';
+        return `${val}${u}`;
+      },
+      effortOpt: {
+        low: '低（low）',
+        medium: '中（medium）',
+        high: '高（high）',
+        xhigh: '超高（xhigh）',
+        max: '极高（max）',
+        ultra: '极限（ultra）',
+      },
+      codeLangDefault: '代码',
+      wtFallback: '工作树',
+      errGeneric: '出错了',
+      errRequestFailed: '请求失败',
+      taskRunningSuffix: ' 运行中',
+      taskFinishedSuffix: ' 已完成',
+      taskCompletedTag: '已完成',
+      taskCompletionSynced: '线程完成结果已同步',
+      bgTaskFallback: '后台任务',
     },
 
     'zh-TW': {
@@ -605,69 +644,69 @@
       actCopyPath: '複製路徑',
       actOpenThread: '開啟會話',
       actArchive: '封存',
-      actCleanWt: '清理 Worktree',
-      actCleanWtTip: '移除殘留的 Git Worktree 目錄與已合併分支',
+      actCleanWt: '清理工作樹',
+      actCleanWtTip: '移除殘留的 Git 工作樹目錄與已合併分支',
       copiedPath: '已複製路徑',
       copiedCode: '已複製',
       copyBtn: '複製',
       archivedToast: '已封存',
-      archivedWtAndBranchToast: '已封存 · 已清理 Worktree 及分支',
-      archivedWtToast: '已封存 · 已清理 Worktree',
-      archivedPrunedToast: '已封存 · 已清理失效 Worktree 記錄',
-      archivedKeptDirtyToast: '已封存 · 保留 Worktree（存在未提交修改）',
-      archivedKeptUnmergedToast: '已封存 · 保留 Worktree（存在未合併提交）',
-      archivedWtErrToast: (e) => `已封存 · Worktree 未移除（${e}）`,
+      archivedWtAndBranchToast: '已封存 · 已清理工作樹及分支',
+      archivedWtToast: '已封存 · 已清理工作樹',
+      archivedPrunedToast: '已封存 · 已清理失效工作樹記錄',
+      archivedKeptDirtyToast: '已封存 · 保留工作樹（存在未提交修改）',
+      archivedKeptUnmergedToast: '已封存 · 保留工作樹（存在未合併提交）',
+      archivedWtErrToast: (e) => `已封存 · 工作樹未移除（${e}）`,
       archiveErrToast: '封存失敗',
-      cleanedWtAndBranchToast: '已清理 Worktree 及分支',
-      cleanedWtToast: '已清理 Worktree',
-      cleanedPrunedToast: '已清理失效 Worktree 記錄',
-      keptDirtyToast: '未移除：Worktree 存在未提交修改',
+      cleanedWtAndBranchToast: '已清理工作樹及分支',
+      cleanedWtToast: '已清理工作樹',
+      cleanedPrunedToast: '已清理失效工作樹記錄',
+      keptDirtyToast: '未移除：工作樹存在未提交修改',
       keptUnmergedToast: '未移除：分支存在未合併提交',
-      cleanupErrToast: '清理 Worktree 失敗',
+      cleanupErrToast: '清理工作樹失敗',
       modalArchiveTitle: '封存工作執行緒',
-      modalCleanTitle: '清理 Git Worktree',
+      modalCleanTitle: '清理 Git 工作樹',
       modalArchiveConfirm: '確認封存',
       modalArchiveForceConfirm: '強制封存並刪除',
-      modalCleanConfirm: '清理 Worktree',
+      modalCleanConfirm: '清理工作樹',
       modalCleanForceConfirm: '強制移除',
       modalWorking: '處理中…',
-      modalRemoveWtOpt: '同時移除 Git Worktree 目錄並清理已合併分支',
+      modalRemoveWtOpt: '同時移除 Git 工作樹目錄並清理已合併分支',
       modalDelBranchOpt: '同時刪除關聯的執行緒 Git 分支',
-      modalForceWtOpt: '強制刪除未提交或未合併的 Worktree（將捨棄未提交改動與未合併分支）',
+      modalForceWtOpt: '強制刪除未提交或未合併的工作樹（將捨棄未提交改動與未合併分支）',
       modalStatusClean: '乾淨且已合併',
       modalStatusMissing: '目錄已不存在（將自動清理殘留記錄）',
       modalWarnDirtyUnmerged: (dirtyCount, aheadCount) => {
         const parts = [];
         if (dirtyCount > 0) parts.push(`${dirtyCount} 處未提交修改`);
         if (aheadCount > 0) parts.push(`${aheadCount} 個未合併提交`);
-        return `偵測到 ${parts.join('與')}。預設會保留此 Worktree 目錄以免遺失改動；如需強制刪除請勾選下方選項。`;
+        return `偵測到 ${parts.join('與')}。預設會保留此工作樹目錄以免遺失改動；如需強制刪除請勾選下方選項。`;
       },
       emptyThreadsTitle: '目前專案暫無活躍執行緒',
       emptyThreadsBody:
         '在中央總控會話直接派發平行任務，或點擊右上角「+ 新增」手動建立。',
       emptyArchived: '尚無已封存執行緒。',
-      emptyWt: '目前尚無獨立 Git Worktree 目錄。',
+      emptyWt: '目前尚無獨立 Git 工作樹目錄。',
       fTitle: '執行緒標題',
       fTitlePh: '例如：排查提前建單未觸發自動清關的前置條件',
       fBranch: 'Git 分支名（選填）',
       fModel: '模型',
-      modelFollowCoord: (lbl) => (lbl ? `跟隨總控 (${lbl})` : '跟隨目前總控'),
+      modelFollowCoord: (lbl) => (lbl ? `跟隨總控（${lbl}）` : '跟隨目前總控'),
       modelGrpConcrete: '具體模型',
       modelGrpTiers: '通用檔位',
-      fWt: '建立獨立 Git Worktree 隔離副本（純唯讀程式碼排查可取消勾選）',
-      fWtDisabled: '目前專案未關聯 Git 儲存庫（僅支援無 Worktree 背景會話）',
+      fWt: '建立獨立 Git 工作樹隔離副本（純唯讀程式碼排查可取消勾選）',
+      fWtDisabled: '目前專案未關聯 Git 儲存庫（僅支援無工作樹背景會話）',
       fPrompt: '任務說明',
       fPromptPh: '輸入排查目標、錯誤堆疊或修改要求…',
       fSubmit: '啟動執行緒',
       fCreating: '正在啟動…',
       fCancel: '取消',
       fErrReq: '請填寫標題與任務說明',
-      libMem: '共享專案記憶 (Project Memory)',
-      libSave: '儲存並廣播至 Worktree',
+      libMem: '共享專案記憶',
+      libSave: '儲存並廣播至工作樹',
       libSaving: '儲存中…',
       libReload: '重新讀取',
       libSaved: '已儲存並同步至活躍分支',
-      libWt: '活躍 Git Worktree 分支',
+      libWt: '活躍工作樹分支',
       wtClean: '乾淨',
       backThreads: '執行緒',
       syncCoord: '同步總控',
@@ -677,13 +716,13 @@
       syncNone: '已是最新',
       syncErr: '同步失敗',
       popoutTip: '開啟原生側邊會話分頁',
-      sendTip: '傳送追問 (Enter)',
+      sendTip: '傳送追問（Enter）',
       runningStateTip: '執行緒正在背景執行（輸入內容可繼續追問）',
       briefTitle: '初始任務書',
       briefExpand: '展開全部',
       briefCollapse: '收起',
       briefCtx: '查看繼承的專案記憶與分支規則',
-      userExpand: (n) => `展開全部 (${n} 行) ▾`,
+      userExpand: (n) => `展開全部（${n} 行） ▾`,
       userCollapse: '收起長文字 ▴',
       pendingSend: '已投遞至背景執行緒…',
       sending: '正在投遞…',
@@ -729,31 +768,52 @@
       engineCodex: 'Codex',
       engineCodexUnavail: 'Codex（未找到排程腳本）',
       fCodexKind: '任務類型',
-      codexKindImpl: '實作（可寫 · 自動 Worktree）',
+      codexKindImpl: '實作（可寫 · 自動隔離工作樹）',
       codexKindReview: '審查（硬鎖唯讀 · 原位）',
       codexKindPlan: '雙盲方案（硬鎖唯讀 · 原位）',
       fCodexEffort: '思考檔位',
-      codexDefaultCfg: (val) => (val ? `預設 (${val})` : '預設 (config.toml)'),
+      codexDefaultCfg: (val) => (val ? `預設（${val}）` : '預設（沿用全域設定）'),
       fCodexModel: 'Codex 模型（可選）',
-      fCodexModelPh: (m) => (m ? `留空沿用 config.toml (${m})` : '留空沿用 config.toml'),
-      fCodexFast: '高速檔位 (-Fast)',
+      fCodexModelPh: (m) => (m ? `留空預設使用 ${m}（來自全域設定）` : '留空預設沿用 Codex 全域設定'),
+      fCodexFast: '高速檔位',
       fCodexHandoff: '強結構化回執',
-      fWtCodexImpl: '自動建立隔離 Git Worktree（支援單倉與多倉聚合目錄）',
-      fWtCodexReadOnly: 'review / plan 硬鎖唯讀，原位檢查不建 Worktree',
-      actOpenCodex: 'Codex ↗',
-      codexOpenTip: '在 Codex Desktop 中開啟此會話',
-      codexOpenedToast: '已喚起 Codex Desktop',
-      codexOpenErrToast: '無法直接喚起 Codex Desktop',
+      fWtCodexImpl: '自動建立隔離 Git 工作樹（支援單倉與多倉聚合目錄）',
+      fWtCodexReadOnly: '審查 / 方案硬鎖唯讀，原位檢查不建工作樹',
+      actOpenCodex: 'Codex 桌面端 ↗',
+      codexOpenTip: '在 Codex 桌面端中開啟此會話',
+      codexOpenedToast: '已喚起 Codex 桌面端',
+      codexOpenErrToast: '無法直接喚起 Codex 桌面端',
       codexRunningInputTip: 'Codex 正在執行本輪，完成後即可傳送追問續接',
       codexRunningComposerPh: 'Codex 正在執行本輪，完成後自動解鎖追問續接…',
       roleCodexImpl: 'Codex · 實作',
       roleCodexReview: 'Codex · 審查',
       roleCodexPlan: 'Codex · 方案',
+      relShort: (val, unit) => {
+        const u = unit === 'm' ? '分' : unit === 'h' ? '小時' : '天';
+        return `${val}${u}`;
+      },
+      effortOpt: {
+        low: '低（low）',
+        medium: '中（medium）',
+        high: '高（high）',
+        xhigh: '超高（xhigh）',
+        max: '極高（max）',
+        ultra: '極限（ultra）',
+      },
+      codeLangDefault: '程式碼',
+      wtFallback: '工作樹',
+      errGeneric: '發生錯誤',
+      errRequestFailed: '請求失敗',
+      taskRunningSuffix: ' 執行中',
+      taskFinishedSuffix: ' 已完成',
+      taskCompletedTag: '已完成',
+      taskCompletionSynced: '執行緒完成結果已同步',
+      bgTaskFallback: '背景任務',
     },
   };
 
-  let curLocale = 'en';
-  const L = () => I18N[curLocale] || I18N.en;
+  let curLocale = 'zh-CN';
+  const L = () => I18N[curLocale] || I18N['zh-CN'];
 
   // ---------- Crisp Monochrome & Swarm Status SVG Icons ----------
   const ICONS = {
@@ -1043,11 +1103,12 @@
 
   // ---------- Live Global Locale Application ----------
   function applyLocale(nextLocale) {
-    const target = I18N[nextLocale] ? nextLocale : 'en';
+    const target = I18N[nextLocale] ? nextLocale : 'zh-CN';
     const changed = target !== curLocale;
     curLocale = target;
     document.documentElement.lang = curLocale;
     const t = L();
+    document.title = t.panelTitle;
 
     document.getElementById('lbl-tab-threads').textContent = t.tabThreads;
     document.getElementById('lbl-tab-library').textContent = t.tabLibrary;
@@ -1066,6 +1127,10 @@
 
     document.getElementById('lbl-drawer-title').textContent = t.drawerTitle;
     document.getElementById('btn-close-drawer').title = t.closeTip;
+    if (elModalClose) {
+      elModalClose.title = t.closeTip;
+      elModalClose.setAttribute('aria-label', t.closeTip);
+    }
     const engLbl = document.getElementById('lbl-f-engine');
     if (engLbl) engLbl.textContent = t.fEngine;
     const btnEngAgy = document.getElementById('btn-eng-agy');
@@ -1087,7 +1152,15 @@
     if (effLbl) effLbl.textContent = t.fCodexEffort;
     const effSel = document.getElementById('f-codex-effort');
     if (effSel && effSel.options.length > 0) {
-      effSel.options[0].textContent = t.codexDefaultCfg(modelCatalogState.codex?.defaults?.effort || '');
+      const defEff = modelCatalogState.codex?.defaults?.effort || '';
+      const defEffLbl = defEff && t.effortOpt?.[defEff] ? t.effortOpt[defEff] : defEff;
+      effSel.options[0].textContent = t.codexDefaultCfg(defEffLbl);
+      for (let i = 1; i < effSel.options.length; i++) {
+        const opt = effSel.options[i];
+        if (t.effortOpt && t.effortOpt[opt.value]) {
+          opt.textContent = t.effortOpt[opt.value];
+        }
+      }
     }
     const cxModelLbl = document.getElementById('lbl-f-codex-model');
     if (cxModelLbl) cxModelLbl.textContent = t.fCodexModel;
@@ -1288,7 +1361,10 @@
             }
             const effSel = document.getElementById('f-codex-effort');
             if (effSel && effSel.options.length > 0) {
-              effSel.options[0].textContent = L().codexDefaultCfg(data.codex.defaults?.effort || '');
+              const t = L();
+              const defEff = data.codex.defaults?.effort || '';
+              const defEffLbl = defEff && t.effortOpt?.[defEff] ? t.effortOpt[defEff] : defEff;
+              effSel.options[0].textContent = t.codexDefaultCfg(defEffLbl);
             }
             const cxModelIn = document.getElementById('f-codex-model');
             if (cxModelIn) {
@@ -1521,15 +1597,16 @@
 
   function relTime(isoStr) {
     if (!isoStr) return '';
+    const t = L();
     const ms = Date.now() - Date.parse(isoStr);
-    if (!Number.isFinite(ms) || ms < 0) return L().justNow;
+    if (!Number.isFinite(ms) || ms < 0) return t.justNow;
     const sec = Math.floor(ms / 1000);
-    if (sec < 45) return L().justNow;
+    if (sec < 45) return t.justNow;
     const min = Math.floor(sec / 60);
-    if (min < 60) return `${min}m`;
+    if (min < 60) return t.relShort(min, 'm');
     const hr = Math.floor(min / 60);
-    if (hr < 24) return `${hr}h`;
-    return `${Math.floor(hr / 24)}d`;
+    if (hr < 24) return t.relShort(hr, 'h');
+    return t.relShort(Math.floor(hr / 24), 'd');
   }
 
   function relTimeAgo(isoStr) {
@@ -1724,6 +1801,23 @@
     return norm;
   }
 
+  function localizeTaskBannerTitle(raw) {
+    const s = String(raw || '').trim();
+    if (!s || curLocale === 'en') return s;
+    const t = L();
+    if (s === 'Thread completion synced') return t.taskCompletionSynced;
+    let out = s.replace(/^\[(thr-[a-z0-9_-]+)\s+Completed\]/i, `[$1 ${t.taskCompletedTag}]`);
+    if (out.startsWith('Background task')) {
+      out = `${t.bgTaskFallback}${out.slice('Background task'.length)}`;
+    }
+    if (out.endsWith(' running')) {
+      out = `${out.slice(0, -8)}${t.taskRunningSuffix}`;
+    } else if (out.endsWith(' finished')) {
+      out = `${out.slice(0, -9)}${t.taskFinishedSuffix}`;
+    }
+    return out;
+  }
+
   function formatToolLabel(cat, target) {
     const cleanTarget = normalizeActivityText(target);
     const verb = L().toolVerb[cat] || '';
@@ -1813,8 +1907,15 @@
 
   function renderEngineBadgeHtml(th) {
     if (th?.engine !== 'codex') return '';
+    const t = L();
     const kind = th.codex?.taskKind || 'implement';
-    return `<span class="engine-pill codex" title="Codex (${esc(kind)})">Codex · ${esc(kind)}</span>`;
+    const label =
+      kind === 'review'
+        ? t.roleCodexReview
+        : kind === 'plan'
+          ? t.roleCodexPlan
+          : t.roleCodexImpl;
+    return `<span class="engine-pill codex" title="${esc(label)}">${esc(label)}</span>`;
   }
 
   function popoutThreadToMain(threadId) {
@@ -1947,7 +2048,7 @@
         flushTable();
         if (!inCode) {
           inCode = true;
-          codeLang = fenceMatch[1] || 'code';
+          codeLang = fenceMatch[1] || t.codeLangDefault;
           codeBuf = [];
         } else {
           const rawCode = codeBuf.join('\n');
@@ -2011,7 +2112,7 @@
     if (inCode) {
       const rawCode = codeBuf.join('\n');
       const cid = `cb-${++codeBlockSeq}`;
-      html += `<div class="code-block"><div class="code-hdr"><span>${esc(codeLang || 'code')}</span><button type="button" class="code-copy" data-target="${cid}">${esc(t.copyBtn)}</button></div><pre><code id="${cid}">${esc(rawCode)}</code></pre></div>`;
+      html += `<div class="code-block"><div class="code-hdr"><span>${esc(codeLang || t.codeLangDefault)}</span><button type="button" class="code-copy" data-target="${cid}">${esc(t.copyBtn)}</button></div><pre><code id="${cid}">${esc(rawCode)}</code></pre></div>`;
     }
     flushList();
     flushTable();
@@ -2633,7 +2734,7 @@
 
   function renderWorktreeCard(th) {
     const t = L();
-    const branchText = th.git?.branch || th.branch || 'worktree';
+    const branchText = th.git?.branch || th.branch || t.wtFallback;
     const pills = [
       `<span class="branch-pill">${ICONS.branch} <span>${esc(branchText)}</span></span>`,
     ];
@@ -3219,7 +3320,7 @@
           return `
             <details class="task-banner" data-det-id="${esc(detId)}"${isOpen}>
               <summary>
-                <span>${esc(it.title || '')}</span>
+                <span>${esc(localizeTaskBannerTitle(it.title || ''))}</span>
                 <span class="trace-chev">${ICONS.chevronRight}</span>
               </summary>
               ${it.output ? `<pre>${esc(it.output)}</pre>` : ''}
@@ -3438,7 +3539,7 @@
       const data = await res.json();
       if (data.locale) applyLocale(data.locale);
       if (!data.ok) {
-        elChatStream.innerHTML = `<div class="msg-err">${esc(data.error || 'Error')}</div>`;
+        elChatStream.innerHTML = `<div class="msg-err">${esc(data.error || L().errGeneric)}</div>`;
         return;
       }
       if (data.thread) renderThreadHeader(data.thread);
@@ -3505,7 +3606,7 @@
       }
       const res = await postApi('/api/thread_send', '/api/thread_send_get', sendPayload);
       if (!res.ok) {
-        tempWrap.innerHTML = `<div class="msg-user">${esc(text)}</div><div class="err">${esc(res.error || 'Error')}</div>`;
+        tempWrap.innerHTML = `<div class="msg-user">${esc(text)}</div><div class="err">${esc(res.error || L().errGeneric)}</div>`;
       } else {
         if (chosenModel) {
           pendingModelByThread.delete(targetThreadId);
@@ -3855,7 +3956,7 @@
     } catch (err) {
       ctx.busy = false;
       elModalErr.hidden = false;
-      elModalErr.textContent = err?.message || 'Request failed';
+      elModalErr.textContent = err?.message || L().errRequestFailed;
       elModalConfirm.disabled = false;
       elModalCancel.disabled = false;
       elModalClose.disabled = false;
@@ -3973,7 +4074,7 @@
         }),
       );
       if (!res.ok) {
-        errEl.textContent = res.error || 'Error';
+        errEl.textContent = res.error || L().errGeneric;
       } else {
         document.getElementById('f-title').value = '';
         document.getElementById('f-branch').value = '';
@@ -4023,7 +4124,7 @@
 
   // ---------- Boot & Reactive Polling ----------
   async function start() {
-    applyLocale('en');
+    applyLocale('zh-CN');
     await syncHostConversationScope();
     if (window.sidecar && window.sidecar.getWorkspaceUris) {
       try {

@@ -632,6 +632,7 @@ test('local-hardening static checks: default model inherits/neon-xhigh, dynamic 
   const serverSrc = readFileSync(new URL('../mcp/server.mjs', import.meta.url), 'utf8');
   const hookSrc = readFileSync(new URL('../scripts/hook-handler.mjs', import.meta.url), 'utf8');
   const mainSrc = readFileSync(new URL('../sidecars/threads/main.mjs', import.meta.url), 'utf8');
+  const sidecarJson = readFileSync(new URL('../sidecars/threads/sidecar.json', import.meta.url), 'utf8');
   const htmlSrc = readFileSync(new URL('../sidecars/threads/index.html', import.meta.url), 'utf8');
   const appSrc = readFileSync(new URL('../sidecars/threads/app.js', import.meta.url), 'utf8');
 
@@ -640,6 +641,7 @@ test('local-hardening static checks: default model inherits/neon-xhigh, dynamic 
   assert.match(txSrc, /DEFAULT_COORDINATOR_REPORT_MAX_CHARS\s*=\s*6500/);
   assert.match(storeSrc, /model\s*=\s*'inherit'/);
   assert.match(storeSrc, /'gemini-4-neon-xhigh'/);
+  assert.match(storeSrc, /const finalLocale = detected \|\| 'zh-CN'/);
   assert.match(storeSrc, /export async function getThreadDetail/);
   assert.match(storeSrc, /agy-fs\.mjs/);
   assert.match(serverSrc, /Defaults to "inherit"\./);
@@ -649,9 +651,13 @@ test('local-hardening static checks: default model inherits/neon-xhigh, dynamic 
   assert.match(mainSrc, /'\/api\/models'/);
   assert.match(mainSrc, /'\/api\/thread_open_external'/);
   assert.match(mainSrc, /},\s*10000\);/);
+  assert.match(sidecarJson, /"display_name":\s*"项目线程"/);
+  assert.match(htmlSrc, /<html lang="zh-CN">/);
   assert.match(htmlSrc, /value="gemini-4-neon-xhigh" selected/);
   assert.match(htmlSrc, /id="goal-metrics"/);
   assert.match(htmlSrc, /id="f-engine-seg"/);
+  assert.match(appSrc, /let curLocale = 'zh-CN';/);
+  assert.match(appSrc, /applyLocale\('zh-CN'\);/);
   assert.match(appSrc, /\/api\/models/);
   assert.match(appSrc, /\/api\/thread_open_external/);
   assert.match(appSrc, /renderTelemetryStripInnerHtml/);

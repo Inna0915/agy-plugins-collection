@@ -138,7 +138,7 @@ export async function getModelSelectorState({
   };
 }
 
-let localeCache = { key: '', locale: 'en' };
+let localeCache = { key: '', locale: 'zh-CN' };
 
 function normalizeLocaleTag(raw) {
   const s = String(raw || '').trim();
@@ -160,6 +160,9 @@ function safeFileStamp(p) {
 }
 
 export function resolveAppLocale() {
+  const envLocale = normalizeLocaleTag(process.env.PROJECT_THREADS_LOCALE);
+  if (envLocale) return envLocale;
+
   const geminiDir = process.env.ANTIGRAVITY_GEMINI_DIR || join(homedir(), '.gemini');
   const appDataDir = process.env.ANTIGRAVITY_APP_DATA_DIR || join(geminiDir, 'antigravity');
   const appConfigPath = join(geminiDir, 'config', 'config.json');
@@ -212,7 +215,7 @@ export function resolveAppLocale() {
     }
   }
 
-  const finalLocale = detected || 'en';
+  const finalLocale = detected || 'zh-CN';
   localeCache = { key: stamp, locale: finalLocale };
   return finalLocale;
 }

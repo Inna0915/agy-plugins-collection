@@ -2,16 +2,16 @@
   "command": "node",
   "args": ["main.mjs"],
   "restart_policy": "always",
-  "display_name": "Project Threads",
-  "description": "Claude Projects-style live thread board: monitor parallel Git worktree threads, inspect commit/dirty status, dispatch background threads, and manage Shared Project Memory.",
+  "display_name": "项目线程",
+  "description": "项目多线协同看板：监控并行 Git 工作树与只读工作线程、查看提交与上下文消耗、派发后台线程并管理共享项目记忆。",
   "has_web_ui": true,
   "ui_config": {
-    "display_name": "Project Threads",
+    "display_name": "项目线程",
     "views": [
       {
         "path": "/",
         "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
-        "title": "Project Threads"
+        "title": "项目线程"
       }
     ]
   }

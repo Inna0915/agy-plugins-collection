@@ -43,7 +43,7 @@ function registerDualApi(basePath, handler) {
 }
 
 app.page('/', () =>
-  new Response(readStaticAsset('index.html', '<!doctype html><title>Project Threads</title>'), {
+  new Response(readStaticAsset('index.html', '<!doctype html><title>项目线程</title>'), {
     contentType: 'text/html; charset=utf-8',
     headers: { 'Cache-Control': 'no-store' },
   }),
