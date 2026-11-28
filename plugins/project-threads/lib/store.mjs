@@ -16,16 +16,18 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, normalize, resolve } from 'node:path';
 import {
   createConversation,
+  getCascadeModelCatalog,
   getConversation,
   getModelConfigLookup,
+  getSelectableModels,
   getStateDir,
   getThreadGeneratorModel,
-  listAvailableModels,
   listConversations,
   resolveAgentApiExe,
   resolveConcreteModelIdFromLookup,
   resolveLsEndpoint,
   resolveModelLabelFromLookup,
+  sendUserCascadeMessage,
   updateConversation,
 } from './ls-client.mjs';
 import { formatModelDisplay, isTierAlias } from './model-format.mjs';
@@ -103,9 +105,11 @@ export async function getModelSelectorState({
   conversationId = '',
   coordinatorId = '',
   projectId = '',
+  forceRefresh = false,
 } = {}) {
   const defaultModel = getDefaultThreadModel();
-  const models = await listAvailableModels({ timeoutMs: 3000 });
+  const catalog = await getCascadeModelCatalog({ timeoutMs: 3000, forceRefresh });
+  const models = Array.isArray(catalog.models) ? catalog.models : [];
   const reg = loadRegistry();
   const scope = await resolveProjectScope({
     workspacePath,
@@ -121,11 +125,15 @@ export async function getModelSelectorState({
     : { id: '', label: '' };
   const defaultEntry = models.find((m) => m.id.toLowerCase() === defaultModel.toLowerCase());
   return {
+    ok: catalog.ok,
     locale: resolveAppLocale(),
     defaultModel,
     defaultModelLabel: defaultEntry?.label || formatModelDisplay(defaultModel),
+    defaultModelId: catalog.defaultModel?.id || defaultModel,
+    defaultModelEnum: catalog.defaultModel?.modelEnum || defaultEntry?.modelEnum || '',
     coordinatorModel,
     models,
+    error: catalog.error || '',
     codex: getCodexEngineInfo(),
   };
 }
@@ -210,6 +218,128 @@ export function resolveAppLocale() {
 }
 
 const REGISTRY_FILE = () => join(getStateDir(), 'registry.json');
+const REGISTRY_LOCK_FILE = () => `${REGISTRY_FILE()}.lock`;
+const REGISTRY_LOCK_STALE_MS = 10_000;
+const REGISTRY_LOCK_DEAD_PID_MIN_AGE_MS = 1000;
+const REGISTRY_LOCK_WAIT_MS = 4000;
+
+let registryLockDepth = 0;
+const sleepLockBuf =
+  typeof SharedArrayBuffer === 'function' ? new Int32Array(new SharedArrayBuffer(4)) : null;
+
+function sleepSync(ms) {
+  const waitMs = Math.max(1, Math.floor(Number(ms) || 1));
+  if (sleepLockBuf) {
+    try {
+      Atomics.wait(sleepLockBuf, 0, 0, waitMs);
+      return;
+    } catch {
+      // Fallback to bounded busy-wait if Atomics.wait is disallowed on this thread
+    }
+  }
+  const end = Date.now() + waitMs;
+  while (Date.now() < end) {
+    // Busy-wait fallback
+  }
+}
+
+function isProcessAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err?.code === 'EPERM';
+  }
+}
+
+function withRegistryLock(fn, maxWaitMs = REGISTRY_LOCK_WAIT_MS) {
+  if (registryLockDepth > 0) {
+    registryLockDepth++;
+    try {
+      return fn();
+    } finally {
+      registryLockDepth--;
+    }
+  }
+
+  const lockPath = REGISTRY_LOCK_FILE();
+  const payload = `${JSON.stringify({ pid: process.pid, at: new Date().toISOString() })}\n`;
+  const deadline = Date.now() + Math.max(100, Number(maxWaitMs) || REGISTRY_LOCK_WAIT_MS);
+  let acquired = false;
+
+  while (!acquired) {
+    try {
+      writeFileSync(lockPath, payload, { flag: 'wx' });
+      acquired = true;
+      break;
+    } catch (err) {
+      if (!err || err.code !== 'EEXIST') {
+        break;
+      }
+    }
+
+    let reclaimed = false;
+    try {
+      const st = statSync(lockPath);
+      const ageMs = Date.now() - st.mtimeMs;
+      let isStale = ageMs > REGISTRY_LOCK_STALE_MS;
+      if (!isStale && ageMs > REGISTRY_LOCK_DEAD_PID_MIN_AGE_MS) {
+        try {
+          const parsed = JSON.parse(readFileSync(lockPath, 'utf8'));
+          const ownerPid = Number(parsed?.pid);
+          if (
+            Number.isInteger(ownerPid) &&
+            ownerPid > 0 &&
+            ownerPid !== process.pid &&
+            !isProcessAlive(ownerPid)
+          ) {
+            isStale = true;
+          }
+        } catch {
+          // Ignore partial/legacy lock file within TTL
+        }
+      }
+      if (isStale) {
+        try {
+          unlinkSync(lockPath);
+          reclaimed = true;
+        } catch {
+          // Another process reclaimed or released it concurrently
+        }
+      }
+    } catch (statErr) {
+      if (statErr?.code === 'ENOENT') reclaimed = true;
+    }
+
+    if (reclaimed) continue;
+    if (Date.now() >= deadline) break;
+    sleepSync(15 + Math.floor(Math.random() * 20));
+  }
+
+  registryLockDepth++;
+  try {
+    return fn();
+  } finally {
+    registryLockDepth--;
+    if (acquired) {
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        // Ignore lock cleanup errors
+      }
+    }
+  }
+}
+
+export function mutateRegistry(mutator) {
+  return withRegistryLock(() => {
+    const reg = loadRegistry();
+    const result = mutator(reg);
+    saveRegistry(reg);
+    return result;
+  });
+}
 
 function emptyRegistry() {
   return { version: 1, seq: 0, coordinators: {}, threads: {} };
@@ -266,105 +396,123 @@ export function loadRegistry() {
 }
 
 export function saveRegistry(reg) {
-  const file = REGISTRY_FILE();
-  if (existsSync(file) && reg && typeof reg === 'object' && reg.threads) {
-    try {
-      const disk = JSON.parse(readFileSync(file, 'utf8'));
-      if (disk && typeof disk === 'object') {
-        if (Number(disk.seq) > Number(reg.seq || 0)) {
-          reg.seq = Number(disk.seq);
-        }
-        if (disk.coordinators && typeof disk.coordinators === 'object' && reg.coordinators) {
-          for (const [ck, memC] of Object.entries(reg.coordinators)) {
-            const diskC = disk.coordinators[ck];
-            if (!diskC || !memC || diskC.conversationId !== memC.conversationId) continue;
-            const maxDirVer = Math.max(
-              Number(diskC.directiveVersion) || 0,
-              Number(memC.directiveVersion) || 0,
-            );
-            if (maxDirVer > 0) memC.directiveVersion = maxDirVer;
-            const maxSteps = Math.max(
-              Number(diskC.lastStepCount) || 0,
-              Number(memC.lastStepCount) || 0,
-            );
-            if (maxSteps > 0) memC.lastStepCount = maxSteps;
+  withRegistryLock(() => {
+    const file = REGISTRY_FILE();
+    if (reg && typeof reg === 'object') {
+      if (!reg.coordinators || typeof reg.coordinators !== 'object') reg.coordinators = {};
+      if (!reg.threads || typeof reg.threads !== 'object') reg.threads = {};
+    }
+    if (existsSync(file) && reg && typeof reg === 'object' && reg.threads) {
+      try {
+        const disk = JSON.parse(readFileSync(file, 'utf8'));
+        if (disk && typeof disk === 'object') {
+          if (Number(disk.seq) > Number(reg.seq || 0)) {
+            reg.seq = Number(disk.seq);
           }
-        }
-        if (disk.threads && typeof disk.threads === 'object') {
-          for (const [tid, memT] of Object.entries(reg.threads)) {
-            const diskT = disk.threads[tid];
-            if (!diskT || !memT) continue;
+          if (disk.coordinators && typeof disk.coordinators === 'object') {
+            for (const [ck, diskC] of Object.entries(disk.coordinators)) {
+              if (!diskC || isPollutedCoordinatorEntry(ck, diskC)) continue;
+              const memC = reg.coordinators[ck];
+              if (!memC) {
+                reg.coordinators[ck] = diskC;
+                continue;
+              }
+              if (diskC.conversationId !== memC.conversationId) continue;
+              const maxDirVer = Math.max(
+                Number(diskC.directiveVersion) || 0,
+                Number(memC.directiveVersion) || 0,
+              );
+              if (maxDirVer > 0) memC.directiveVersion = maxDirVer;
+              const maxSteps = Math.max(
+                Number(diskC.lastStepCount) || 0,
+                Number(memC.lastStepCount) || 0,
+              );
+              if (maxSteps > 0) memC.lastStepCount = maxSteps;
+            }
+          }
+          if (disk.threads && typeof disk.threads === 'object') {
+            for (const [tid, diskT] of Object.entries(disk.threads)) {
+              if (!diskT) continue;
+              const memT = reg.threads[tid];
+              if (!memT) {
+                reg.threads[tid] = diskT;
+                continue;
+              }
 
-            const diskSynced = Number.isInteger(diskT.lastSyncedStepIndex)
-              ? diskT.lastSyncedStepIndex
-              : -1;
-            const memSynced = Number.isInteger(memT.lastSyncedStepIndex)
-              ? memT.lastSyncedStepIndex
-              : -1;
-            const maxSynced = Math.max(diskSynced, memSynced);
-            if (maxSynced >= 0) {
-              memT.lastSyncedStepIndex = maxSynced;
-            }
+              const diskSynced = Number.isInteger(diskT.lastSyncedStepIndex)
+                ? diskT.lastSyncedStepIndex
+                : -1;
+              const memSynced = Number.isInteger(memT.lastSyncedStepIndex)
+                ? memT.lastSyncedStepIndex
+                : -1;
+              const maxSynced = Math.max(diskSynced, memSynced);
+              if (maxSynced >= 0) {
+                memT.lastSyncedStepIndex = maxSynced;
+              }
 
-            const diskAck = Number.isInteger(diskT.acknowledgedStepIndex)
-              ? diskT.acknowledgedStepIndex
-              : -2;
-            const memAck = Number.isInteger(memT.acknowledgedStepIndex)
-              ? memT.acknowledgedStepIndex
-              : -2;
-            const maxAck = Math.max(diskAck, memAck);
-            if (maxAck >= -1) {
-              memT.acknowledgedStepIndex = maxAck;
-            }
+              const diskAck = Number.isInteger(diskT.acknowledgedStepIndex)
+                ? diskT.acknowledgedStepIndex
+                : -2;
+              const memAck = Number.isInteger(memT.acknowledgedStepIndex)
+                ? memT.acknowledgedStepIndex
+                : -2;
+              const maxAck = Math.max(diskAck, memAck);
+              if (maxAck >= -1) {
+                memT.acknowledgedStepIndex = maxAck;
+              }
 
-            for (const isoKey of ['pushedToCoordinatorAt', 'notifiedCoordinatorAt', 'viewedAt']) {
-              const a = String(diskT[isoKey] || '');
-              const b = String(memT[isoKey] || '');
-              const newer = a > b ? a : b;
-              if (newer) memT[isoKey] = newer;
-            }
+              for (const isoKey of ['pushedToCoordinatorAt', 'notifiedCoordinatorAt', 'viewedAt']) {
+                const a = String(diskT[isoKey] || '');
+                const b = String(memT[isoKey] || '');
+                const newer = a > b ? a : b;
+                if (newer) memT[isoKey] = newer;
+              }
 
-            if (!memT.modelDisplayName && diskT.modelDisplayName) {
-              memT.modelDisplayName = diskT.modelDisplayName;
-            }
-            if (!memT.resolvedModel && diskT.resolvedModel) {
-              memT.resolvedModel = diskT.resolvedModel;
-            }
-            if (diskT.codex && memT.codex) {
-              if (!memT.codex.sessionId && diskT.codex.sessionId) memT.codex.sessionId = diskT.codex.sessionId;
-              if (!memT.codex.desktopUrl && diskT.codex.desktopUrl) memT.codex.desktopUrl = diskT.codex.desktopUrl;
-              if (!memT.codex.nativeSession && diskT.codex.nativeSession) memT.codex.nativeSession = diskT.codex.nativeSession;
-              if (Array.isArray(diskT.codex.runs) && Array.isArray(memT.codex.runs)) {
-                const diskByRound = new Map(diskT.codex.runs.map((r) => [r.round, r]));
-                for (const mRun of memT.codex.runs) {
-                  const dRun = diskByRound.get(mRun.round);
-                  if (!dRun) continue;
-                  for (const k of ['runId', 'statusFile', 'eventsFile', 'finalFile', 'runnerPid', 'finishedAt']) {
-                    if (!mRun[k] && dRun[k]) mRun[k] = dRun[k];
+              if (!memT.modelDisplayName && diskT.modelDisplayName) {
+                memT.modelDisplayName = diskT.modelDisplayName;
+              }
+              if (!memT.resolvedModel && diskT.resolvedModel) {
+                memT.resolvedModel = diskT.resolvedModel;
+              }
+              if (!memT.modelEnum && diskT.modelEnum) {
+                memT.modelEnum = diskT.modelEnum;
+              }
+              if (diskT.codex && memT.codex) {
+                if (!memT.codex.sessionId && diskT.codex.sessionId) memT.codex.sessionId = diskT.codex.sessionId;
+                if (!memT.codex.desktopUrl && diskT.codex.desktopUrl) memT.codex.desktopUrl = diskT.codex.desktopUrl;
+                if (!memT.codex.nativeSession && diskT.codex.nativeSession) memT.codex.nativeSession = diskT.codex.nativeSession;
+                if (Array.isArray(diskT.codex.runs) && Array.isArray(memT.codex.runs)) {
+                  const diskByRound = new Map(diskT.codex.runs.map((r) => [r.round, r]));
+                  for (const mRun of memT.codex.runs) {
+                    const dRun = diskByRound.get(mRun.round);
+                    if (!dRun) continue;
+                    for (const k of ['runId', 'statusFile', 'eventsFile', 'finalFile', 'runnerPid', 'finishedAt']) {
+                      if (!mRun[k] && dRun[k]) mRun[k] = dRun[k];
+                    }
                   }
                 }
               }
             }
           }
         }
+      } catch {
+        // Ignore transient parse errors during merge-safe save
       }
-    } catch {
-      // Ignore transient parse errors during merge-safe save
     }
-  }
-  const payload = JSON.stringify(reg, null, 2);
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  try {
-    writeFileSync(tmp, payload, 'utf8');
-    renameSync(tmp, file);
-  } catch {
+    const payload = JSON.stringify(reg, null, 2);
+    const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
     try {
-      unlinkSync(tmp);
+      writeFileSync(tmp, payload, 'utf8');
+      renameSync(tmp, file);
     } catch {
-      // Ignore tmp cleanup errors
+      try {
+        unlinkSync(tmp);
+      } catch {
+        // Ignore tmp cleanup errors
+      }
+      writeFileSync(file, payload, 'utf8');
     }
-    writeFileSync(file, payload, 'utf8');
-  }
+  });
 }
 
 export function normalizeKey(p) {
@@ -431,7 +579,8 @@ const THREAD_MODEL_RUNNING_TTL_MS = 3500;
 const THREAD_MODEL_OPEN_DEBOUNCE_MS = 1500;
 const THREAD_MODEL_OFFLINE_RETRY_MS = 15000;
 const THREAD_MODEL_EMPTY_RETRY_MS = 10000;
-const threadModelCache = new Map(); // convId -> { checkedAt, updatedAt, runState, modelDisplayName, resolvedModel, fromLs }
+const THREAD_PENDING_MODEL_IDLE_GRACE_MS = 15000;
+const threadModelCache = new Map(); // convId -> { checkedAt, updatedAt, runState, modelDisplayName, resolvedModel, modelEnum, genMetaCount, fromLs }
 
 async function mapWithConcurrency(items, limit, worker) {
   if (!items.length) return;
@@ -456,6 +605,33 @@ async function resolveNonTierModelDisplay(rawModel, { allowCachedOnly = false } 
   const mapped = resolveModelLabelFromLookup(raw, lookup);
   if (mapped) return mapped;
   return /^MODEL_PLACEHOLDER_/i.test(raw) ? '' : formatModelDisplay(raw);
+}
+
+async function findSelectableModelMatch(rawInput, { allowCachedOnly = false } = {}) {
+  const raw = String(rawInput || '').trim();
+  if (!raw || isTierAlias(raw)) return null;
+  const models = await getSelectableModels({ timeoutMs: 2500, allowCachedOnly });
+  if (!models.length) return null;
+  const lower = raw.toLowerCase();
+  const untiered = lower.replace(/-tiered-/g, '-');
+  return (
+    models.find(
+      (m) =>
+        m.id === raw ||
+        m.modelId === raw ||
+        m.modelEnum === raw ||
+        m.modelAlias === raw ||
+        m.label === raw,
+    ) ||
+    models.find(
+      (m) =>
+        m.id.toLowerCase() === lower ||
+        m.modelId.toLowerCase() === lower ||
+        m.modelId.toLowerCase() === untiered ||
+        m.label.toLowerCase() === lower,
+    ) ||
+    null
+  );
 }
 
 /**
@@ -485,7 +661,8 @@ export async function resolveThreadModelInfo(
     } else if (
       effectiveUpdatedAt !== cached.updatedAt ||
       effectiveRunState !== cached.runState ||
-      !t.modelDisplayName
+      !t.modelDisplayName ||
+      Boolean(t.pendingModelSwitch)
     ) {
       shouldQueryLs = true;
     } else if (isRunning) {
@@ -499,7 +676,8 @@ export async function resolveThreadModelInfo(
     shouldQueryLs = true;
   } else if (
     effectiveUpdatedAt !== cached.updatedAt ||
-    effectiveRunState !== cached.runState
+    effectiveRunState !== cached.runState ||
+    Boolean(t.pendingModelSwitch)
   ) {
     shouldQueryLs = true;
   } else if (!cached.fromLs && nowMs - cached.checkedAt >= THREAD_MODEL_OFFLINE_RETRY_MS) {
@@ -510,13 +688,35 @@ export async function resolveThreadModelInfo(
 
   let nextDisplayName = '';
   let nextResolvedModel = '';
+  let nextModelEnum = '';
   let fromLs = cached?.fromLs || false;
+  let genMetaCount = Number.isInteger(cached?.genMetaCount) ? cached.genMetaCount : 0;
+  let clearedPendingSwitch = false;
+  let keepPendingSwitch = false;
 
   if (shouldQueryLs) {
     const genRes = await getThreadGeneratorModel(convId, 3500);
     fromLs = genRes.ok;
-    if (genRes.ok && genRes.info) {
+    if (genRes.ok) {
+      genMetaCount = Number.isInteger(genRes.count) ? genRes.count : 0;
+    }
+    if (t.pendingModelSwitch) {
+      const baseline = Number.isInteger(t.pendingModelSwitch.baselineGenMetaCount)
+        ? t.pendingModelSwitch.baselineGenMetaCount
+        : -1;
+      const reqMs = Date.parse(t.pendingModelSwitch.requestedAt || '');
+      const expiredIdle =
+        !isRunning && Number.isFinite(reqMs) && nowMs - reqMs > THREAD_PENDING_MODEL_IDLE_GRACE_MS;
+      if ((genRes.ok && genMetaCount > baseline) || expiredIdle) {
+        delete t.pendingModelSwitch;
+        clearedPendingSwitch = true;
+      } else {
+        keepPendingSwitch = true;
+      }
+    }
+    if (!keepPendingSwitch && genRes.ok && genRes.info) {
       nextResolvedModel = genRes.info.responseModel || genRes.info.modelEnum || '';
+      nextModelEnum = genRes.info.modelEnum || '';
       if (genRes.info.displayName) {
         nextDisplayName = genRes.info.displayName;
       } else if (nextResolvedModel) {
@@ -534,9 +734,19 @@ export async function resolveThreadModelInfo(
   } else if (cached) {
     nextDisplayName = cached.modelDisplayName || t.modelDisplayName || '';
     nextResolvedModel = cached.resolvedModel || t.resolvedModel || '';
+    nextModelEnum = cached.modelEnum || t.modelEnum || '';
+    if (t.pendingModelSwitch) {
+      keepPendingSwitch = true;
+    }
   }
 
-  if (!nextDisplayName || !fromLs) {
+  if (keepPendingSwitch && t.pendingModelSwitch) {
+    nextDisplayName = t.pendingModelSwitch.modelDisplayName || t.modelDisplayName || '';
+    nextResolvedModel = t.pendingModelSwitch.resolvedModel || t.resolvedModel || '';
+    nextModelEnum = t.pendingModelSwitch.modelEnum || t.modelEnum || '';
+  }
+
+  if (!keepPendingSwitch && (!nextDisplayName || !fromLs)) {
     const txModel = extractTranscriptModel(convId);
     if (txModel.displayName) {
       nextDisplayName = txModel.displayName;
@@ -569,19 +779,25 @@ export async function resolveThreadModelInfo(
     runState: effectiveRunState,
     modelDisplayName: nextDisplayName,
     resolvedModel: nextResolvedModel,
+    modelEnum: nextModelEnum,
+    genMetaCount,
     fromLs,
   });
   if (threadModelCache.size > 200) {
     threadModelCache.delete(threadModelCache.keys().next().value);
   }
 
-  let changed = false;
+  let changed = clearedPendingSwitch;
   if (nextDisplayName !== (t.modelDisplayName || '')) {
     t.modelDisplayName = nextDisplayName;
     changed = true;
   }
   if (nextResolvedModel && nextResolvedModel !== (t.resolvedModel || '')) {
     t.resolvedModel = nextResolvedModel;
+    changed = true;
+  }
+  if (nextModelEnum && nextModelEnum !== (t.modelEnum || '')) {
+    t.modelEnum = nextModelEnum;
     changed = true;
   }
   return changed;
@@ -1160,26 +1376,35 @@ export async function initCoordinator({
     (existing?.projectId && existing.projectId !== 'outside-of-project' ? existing.projectId : '') ||
     '';
   const resolvedEnvId = scope.environmentId || existing?.environmentId || '';
-  const sameConv = Boolean(existing && (!resolvedConvId || resolvedConvId === existing.conversationId));
-
-  reg.coordinators[key] = {
-    ...(sameConv && existing?.directiveVersion ? { directiveVersion: existing.directiveVersion } : {}),
-    ...(sameConv && existing?.lastStepCount ? { lastStepCount: existing.lastStepCount } : {}),
-    key,
-    conversationId: resolvedConvId || existing?.conversationId || '',
-    projectId: resolvedProjId,
-    environmentId: resolvedEnvId,
-    workspacePath: scope.info.workspacePath || scope.baseDir || existing?.workspacePath || '',
-    repoRoot: repoRoot || existing?.repoRoot || '',
-    defaultBranch: scope.info.currentBranch || existing?.defaultBranch || 'HEAD',
-    groupId,
-    title: coordTitle,
-    memoryPath,
-    createdAt: existing?.createdAt || now,
-    updatedAt: now,
-  };
-  saveRegistry(reg);
-  return reg.coordinators[key];
+  const coordRecord = mutateRegistry((freshReg) => {
+    const freshExisting = freshReg.coordinators[key] || existing;
+    const isSameConv = Boolean(
+      freshExisting && (!resolvedConvId || resolvedConvId === freshExisting.conversationId),
+    );
+    const nextCoord = {
+      ...(isSameConv && freshExisting?.directiveVersion
+        ? { directiveVersion: freshExisting.directiveVersion }
+        : {}),
+      ...(isSameConv && freshExisting?.lastStepCount
+        ? { lastStepCount: freshExisting.lastStepCount }
+        : {}),
+      key,
+      conversationId: resolvedConvId || freshExisting?.conversationId || '',
+      projectId: resolvedProjId,
+      environmentId: resolvedEnvId,
+      workspacePath: scope.info.workspacePath || scope.baseDir || freshExisting?.workspacePath || '',
+      repoRoot: repoRoot || freshExisting?.repoRoot || '',
+      defaultBranch: scope.info.currentBranch || freshExisting?.defaultBranch || 'HEAD',
+      groupId: freshExisting?.groupId || groupId,
+      title: coordTitle,
+      memoryPath,
+      createdAt: freshExisting?.createdAt || now,
+      updatedAt: now,
+    };
+    freshReg.coordinators[key] = nextCoord;
+    return nextCoord;
+  });
+  return coordRecord;
 }
 
 function buildWorkerPrompt({ threadId, title, taskPrompt, worktreePath, repoRoot, branch, baseRef, memoryText }) {
@@ -1302,8 +1527,11 @@ export async function dispatchThread({
       reqModel && !/^(?:inherit|auto|default|config)$/i.test(reqModel) ? reqModel : '';
     const useWorktree = kind === 'implement' && createWorktree !== false;
 
-    reg.seq = (reg.seq || 0) + 1;
-    const threadId = `thr-${String(reg.seq).padStart(3, '0')}`;
+    const reservedSeq = mutateRegistry((freshReg) => {
+      freshReg.seq = (Number(freshReg.seq) || 0) + 1;
+      return freshReg.seq;
+    });
+    const threadId = `thr-${String(reservedSeq).padStart(3, '0')}`;
     const codexTask = buildCodexTaskName(threadId, title);
     const promptText = buildCodexInitialPrompt({
       threadId,
@@ -1386,14 +1614,30 @@ export async function dispatchThread({
       },
     };
 
-    reg.threads[threadId] = threadRecord;
     seenRunningThreadIds.add(threadId);
-    saveRegistry(reg);
+    mutateRegistry((freshReg) => {
+      if (reservedSeq > (Number(freshReg.seq) || 0)) {
+        freshReg.seq = reservedSeq;
+      }
+      const freshCoord = freshReg.coordinators?.[key];
+      if (freshCoord && coord?.conversationId && freshCoord.conversationId === coord.conversationId) {
+        if (coord.projectId && coord.projectId !== freshCoord.projectId) {
+          freshCoord.projectId = coord.projectId;
+        }
+        if (coord.environmentId && coord.environmentId !== freshCoord.environmentId) {
+          freshCoord.environmentId = coord.environmentId;
+        }
+      }
+      freshReg.threads[threadId] = threadRecord;
+    });
     return threadRecord;
   }
 
-  reg.seq = (reg.seq || 0) + 1;
-  const threadId = `thr-${String(reg.seq).padStart(3, '0')}`;
+  const reservedSeq = mutateRegistry((freshReg) => {
+    freshReg.seq = (Number(freshReg.seq) || 0) + 1;
+    return freshReg.seq;
+  });
+  const threadId = `thr-${String(reservedSeq).padStart(3, '0')}`;
 
   let worktreePath = '';
   let resolvedBranch = branch || '';
@@ -1431,23 +1675,62 @@ export async function dispatchThread({
       : { id: '', label: '' };
     normalizedModel = inherited.id || getDefaultThreadModel();
   }
+  const matchedCatalogModel = await findSelectableModelMatch(normalizedModel);
+  const createModelArg = matchedCatalogModel?.modelId || normalizedModel;
 
   const tags = ['project-thread', `thread:${threadId}`, `group:${groupId}`];
   if (resolvedCoordId) tags.push(`coord:${resolvedCoordId}`);
 
   const displayTitle = `[${threadId}] ${title}`;
-  const conv = await createConversation({
-    projectId: resolvedProjId,
-    environmentId: resolvedEnvId,
-    title: displayTitle,
-    model: normalizedModel,
-    tags,
-    promptText: fullPrompt,
-  });
+  let conv = null;
+  let usedCascadePromptFallback = false;
+  try {
+    conv = await createConversation({
+      projectId: resolvedProjId,
+      environmentId: resolvedEnvId,
+      title: displayTitle,
+      model: createModelArg,
+      tags,
+      promptText: fullPrompt,
+    });
+  } catch (createErr) {
+    const canFallbackToCascade =
+      !isTierAlias(normalizedModel) &&
+      Boolean(
+        matchedCatalogModel?.modelOrAlias ||
+          matchedCatalogModel?.modelEnum ||
+          /^MODEL_/i.test(normalizedModel),
+      ) &&
+      /(?:HTTP 400|invalid|unsupported|unknown).*model|model.*(?:invalid|unsupported|unknown|not found)/i.test(
+        String(createErr?.message || ''),
+      );
+    if (!canFallbackToCascade) {
+      throw createErr;
+    }
+    conv = await createConversation({
+      projectId: resolvedProjId,
+      environmentId: resolvedEnvId,
+      title: displayTitle,
+      model: 'pro',
+      tags,
+      promptText: '',
+    });
+    usedCascadePromptFallback = true;
+  }
 
   const spawnedId = conv?.id || '';
   if (!spawnedId) {
     throw new Error('ConversationService/CreateConversation returned no conversation ID.');
+  }
+
+  if (usedCascadePromptFallback) {
+    await sendUserCascadeMessage(spawnedId, fullPrompt, {
+      modelOrAlias: matchedCatalogModel?.modelOrAlias,
+      modelEnum:
+        matchedCatalogModel?.modelEnum ||
+        (/^MODEL_(?!ALIAS_)/i.test(normalizedModel) ? normalizedModel : ''),
+      model: matchedCatalogModel?.modelId || normalizedModel,
+    });
   }
 
   try {
@@ -1461,8 +1744,15 @@ export async function dispatchThread({
   }
 
   const now = new Date().toISOString();
-  const initialDisplayName = await resolveNonTierModelDisplay(normalizedModel);
-  const initialResolvedModel = initialDisplayName && !isTierAlias(normalizedModel) ? normalizedModel : '';
+  const initialDisplayName =
+    matchedCatalogModel?.label || (await resolveNonTierModelDisplay(normalizedModel));
+  const initialResolvedModel =
+    initialDisplayName && !isTierAlias(normalizedModel)
+      ? matchedCatalogModel?.modelId || normalizedModel
+      : '';
+  const initialModelEnum =
+    matchedCatalogModel?.modelEnum ||
+    (/^MODEL_(?!ALIAS_)/i.test(normalizedModel) ? normalizedModel : '');
   const threadRecord = {
     threadId,
     conversationId: spawnedId,
@@ -1482,6 +1772,7 @@ export async function dispatchThread({
     model: normalizedModel,
     modelDisplayName: initialDisplayName,
     resolvedModel: initialResolvedModel,
+    ...(initialModelEnum ? { modelEnum: initialModelEnum } : {}),
     runState: conv?.state?.runState || 'RUN_STATE_RUNNING',
     archived: false,
     git: worktreePath ? { exists: true, branch: resolvedBranch, dirtyCount: 0, aheadCount: 0, lastCommit: '' } : null,
@@ -1501,8 +1792,21 @@ export async function dispatchThread({
     });
   }
 
-  reg.threads[threadId] = threadRecord;
-  saveRegistry(reg);
+  mutateRegistry((freshReg) => {
+    if (reservedSeq > (Number(freshReg.seq) || 0)) {
+      freshReg.seq = reservedSeq;
+    }
+    const freshCoord = freshReg.coordinators?.[key];
+    if (freshCoord && coord?.conversationId && freshCoord.conversationId === coord.conversationId) {
+      if (coord.projectId && coord.projectId !== freshCoord.projectId) {
+        freshCoord.projectId = coord.projectId;
+      }
+      if (coord.environmentId && coord.environmentId !== freshCoord.environmentId) {
+        freshCoord.environmentId = coord.environmentId;
+      }
+    }
+    freshReg.threads[threadId] = threadRecord;
+  });
   return threadRecord;
 }
 
@@ -1588,7 +1892,10 @@ export async function syncThreads({
         t.toolStepCount = liveAct.toolStepCount || 0;
 
         if (liveAct.lastSummary && !isActivelyWorking) {
-          if (!t.lastSummary || t.lastSyncedStepIndex !== liveAct.lastStepIndex) {
+          if (
+            (!t.lastSummary || t.lastSyncedStepIndex !== liveAct.lastStepIndex) &&
+            t.lastSummary !== liveAct.lastSummary
+          ) {
             t.lastSummary = liveAct.lastSummary;
             dirty = true;
           }
@@ -1679,7 +1986,10 @@ export async function syncThreads({
       t.toolStepCount = liveAct.toolStepCount || 0;
 
       if (liveAct.lastSummary && !isActivelyWorking) {
-        if (!t.lastSummary || t.lastSyncedStepIndex !== liveAct.lastStepIndex) {
+        if (
+          (!t.lastSummary || t.lastSyncedStepIndex !== liveAct.lastStepIndex) &&
+          t.lastSummary !== liveAct.lastSummary
+        ) {
           t.lastSummary = liveAct.lastSummary;
           dirty = true;
         }
@@ -1726,7 +2036,76 @@ export async function syncThreads({
     },
   );
 
-  if (dirty) saveRegistry(reg);
+  if (dirty) {
+    mutateRegistry((freshReg) => {
+      if (coordinator && scope?.scopeKey) {
+        const freshCoord = freshReg.coordinators?.[scope.scopeKey];
+        if (freshCoord && freshCoord.conversationId === coordinator.conversationId) {
+          if (coordinator.projectId && coordinator.projectId !== freshCoord.projectId) {
+            freshCoord.projectId = coordinator.projectId;
+          }
+          if (coordinator.environmentId && coordinator.environmentId !== freshCoord.environmentId) {
+            freshCoord.environmentId = coordinator.environmentId;
+          }
+        }
+      }
+      for (const t of list) {
+        const freshT = freshReg.threads?.[t.threadId];
+        if (!freshT) continue;
+        freshT.runState = t.runState;
+        if (t.lastCompletedAt && (!freshT.lastCompletedAt || t.lastCompletedAt > freshT.lastCompletedAt)) {
+          freshT.lastCompletedAt = t.lastCompletedAt;
+        }
+        if (t.lastSummary) freshT.lastSummary = t.lastSummary;
+        freshT.archived = t.archived;
+        if (t.projectId && !freshT.projectId) freshT.projectId = t.projectId;
+        if (t.updatedAt && (!freshT.updatedAt || t.updatedAt > freshT.updatedAt)) {
+          freshT.updatedAt = t.updatedAt;
+        }
+        if (t.worktreePath && !freshT.worktreePath && !freshT.codex?.worktreeCleaned) {
+          freshT.worktreePath = t.worktreePath;
+        }
+        if (t.branch && !freshT.branch) freshT.branch = t.branch;
+        if (freshT.worktreePath && freshT.worktreePath === t.worktreePath) {
+          freshT.git = t.git;
+        }
+        freshT.hasPendingBgTask = t.hasPendingBgTask;
+        freshT.activeTool = t.activeTool;
+        freshT.activeToolObj = t.activeToolObj;
+        freshT.stepsProgress = t.stepsProgress;
+        freshT.stepsList = t.stepsList;
+        freshT.toolStepCount = t.toolStepCount;
+        freshT.bucket = t.bucket;
+        freshT.waitingReason = t.waitingReason;
+        if (t.modelDisplayName) freshT.modelDisplayName = t.modelDisplayName;
+        if (t.resolvedModel) freshT.resolvedModel = t.resolvedModel;
+        if (t.modelEnum) freshT.modelEnum = t.modelEnum;
+        if (t.pendingModelSwitch) {
+          freshT.pendingModelSwitch = t.pendingModelSwitch;
+        } else if (freshT.pendingModelSwitch && !t.pendingModelSwitch) {
+          delete freshT.pendingModelSwitch;
+        }
+        if (t.codex && freshT.codex) {
+          if (t.codex.sessionId) freshT.codex.sessionId = t.codex.sessionId;
+          if (t.codex.desktopUrl) freshT.codex.desktopUrl = t.codex.desktopUrl;
+          if (t.codex.nativeSession) freshT.codex.nativeSession = t.codex.nativeSession;
+          if (t.codex.worktreeTopology) freshT.codex.worktreeTopology = t.codex.worktreeTopology;
+          if (Array.isArray(t.codex.worktreeRepos) && t.codex.worktreeRepos.length > 0) {
+            freshT.codex.worktreeRepos = t.codex.worktreeRepos;
+          }
+          freshT.codex.lastErrorKind = t.codex.lastErrorKind || '';
+          freshT.codex.lastError = t.codex.lastError || '';
+          if (Array.isArray(t.codex.runs) && Array.isArray(freshT.codex.runs)) {
+            const byRound = new Map(freshT.codex.runs.map((r) => [r.round, r]));
+            for (const r of t.codex.runs) {
+              const target = byRound.get(r.round);
+              if (target) Object.assign(target, r);
+            }
+          }
+        }
+      }
+    });
+  }
 
   for (const tid of pendingAutoSyncIds) {
     try {
@@ -2371,16 +2750,6 @@ export async function archiveThread(threadIdOrOpts, optsArg = {}) {
   };
 }
 
-function isProcessAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return err?.code === 'EPERM';
-  }
-}
-
 function quoteWindowsCmdArg(val) {
   const s = String(val ?? '').replace(/\r?\n/g, ' ');
   return `"${s.replace(/"/g, '\\"')}"`;
@@ -2486,7 +2855,81 @@ export function invokeAgentApiSend({
   });
 }
 
-export async function sendThreadMessage({ threadId, message, title = '' }) {
+async function resolveModelOverrideForSend({
+  model = '',
+  modelEnum = '',
+  modelOrAlias = null,
+  modelDisplayName = '',
+} = {}) {
+  const rawModel = String(model || '').trim();
+  const rawOrAlias = modelOrAlias && typeof modelOrAlias === 'object' ? modelOrAlias : null;
+  const rawEnum = String(modelEnum || rawOrAlias?.model || '').trim();
+  const rawAlias = String(rawOrAlias?.alias || '').trim();
+  const rawDisplay = String(modelDisplayName || '').trim();
+
+  const hasOverride = Boolean(rawModel || rawEnum || rawAlias);
+  if (!hasOverride) {
+    return { hasOverride: false };
+  }
+
+  if (rawModel && isTierAlias(rawModel) && !rawEnum && !rawAlias) {
+    throw new Error(
+      `Model tier alias "${rawModel}" cannot switch an existing thread; select a concrete model.`,
+    );
+  }
+
+  const catalogMatch =
+    (rawEnum ? await findSelectableModelMatch(rawEnum) : null) ||
+    (rawModel ? await findSelectableModelMatch(rawModel) : null) ||
+    (rawAlias ? await findSelectableModelMatch(rawAlias) : null);
+
+  const effectiveEnum =
+    catalogMatch?.modelEnum ||
+    rawEnum ||
+    (/^MODEL_(?!ALIAS_)/i.test(rawModel) ? rawModel : '');
+  const effectiveAlias =
+    catalogMatch?.modelAlias ||
+    rawAlias ||
+    (/^MODEL_ALIAS_/i.test(rawModel) ? rawModel : '');
+  const effectiveOrAlias =
+    catalogMatch?.modelOrAlias ||
+    (effectiveEnum ? { model: effectiveEnum } : effectiveAlias ? { alias: effectiveAlias } : null);
+
+  if (!effectiveEnum && !effectiveOrAlias) {
+    throw new Error(`Could not resolve concrete model identifier for "${rawModel || rawEnum}".`);
+  }
+
+  const effectiveModelId =
+    catalogMatch?.modelId ||
+    catalogMatch?.id ||
+    (!/^MODEL_/i.test(rawModel) ? rawModel : '') ||
+    effectiveEnum;
+  const effectiveDisplayName =
+    rawDisplay ||
+    catalogMatch?.label ||
+    (await resolveNonTierModelDisplay(effectiveModelId || effectiveEnum, {
+      allowCachedOnly: true,
+    })) ||
+    formatModelDisplay(effectiveModelId || effectiveEnum);
+
+  return {
+    hasOverride: true,
+    modelId: effectiveModelId,
+    modelEnum: effectiveEnum,
+    modelOrAlias: effectiveOrAlias,
+    modelDisplayName: effectiveDisplayName,
+  };
+}
+
+export async function sendThreadMessage({
+  threadId,
+  message,
+  title = '',
+  model = '',
+  modelEnum = '',
+  modelOrAlias = null,
+  modelDisplayName = '',
+}) {
   const text = String(message || '').trim();
   if (!threadId || !text) {
     throw new Error('Both `threadId` and `message` are required.');
@@ -2523,47 +2966,129 @@ export async function sendThreadMessage({ threadId, message, title = '' }) {
       createWorktree: Boolean(t.codex.createWorktree),
       sessionId: sid,
     });
-    runs.push(nextRun);
-    t.codex.runs = runs;
-    t.codex.lastErrorKind = '';
-    t.codex.lastError = '';
-    t.runState = 'RUN_STATE_RUNNING';
-    t.updatedAt = new Date().toISOString();
     seenRunningThreadIds.add(t.threadId);
-    saveRegistry(reg);
-    return { ok: true, thread: t };
+    const updatedCodexThread = mutateRegistry((freshReg) => {
+      const freshT = freshReg.threads[t.threadId];
+      if (!freshT || !freshT.codex) return t;
+      const freshRuns = Array.isArray(freshT.codex.runs) ? freshT.codex.runs : [];
+      freshRuns.push(nextRun);
+      freshT.codex.runs = freshRuns;
+      freshT.codex.lastErrorKind = '';
+      freshT.codex.lastError = '';
+      freshT.runState = 'RUN_STATE_RUNNING';
+      freshT.updatedAt = new Date().toISOString();
+      return freshT;
+    });
+    return { ok: true, thread: updatedCodexThread };
   }
 
-  try {
-    await invokeAgentApiSend({
-      conversationId: t.conversationId,
-      message: text,
-      title: title || `Follow-up [${t.threadId}]`,
-      projectId: t.projectId,
+  const override = await resolveModelOverrideForSend({
+    model,
+    modelEnum,
+    modelOrAlias,
+    modelDisplayName,
+  });
+
+  if (override.hasOverride) {
+    let baselineGenMetaCount = threadModelCache.get(t.conversationId)?.genMetaCount;
+    if (!Number.isInteger(baselineGenMetaCount)) {
+      const preGen = await getThreadGeneratorModel(t.conversationId, 1500);
+      baselineGenMetaCount = preGen.ok && Number.isInteger(preGen.count) ? preGen.count : -1;
+    }
+
+    await sendUserCascadeMessage(t.conversationId, text, {
+      model: override.modelId,
+      modelEnum: override.modelEnum,
+      modelOrAlias: override.modelOrAlias,
     });
-  } catch (err) {
-    if (t.projectId) {
+
+    const now = new Date().toISOString();
+    seenRunningThreadIds.add(t.threadId);
+    const updatedThread = mutateRegistry((freshReg) => {
+      const freshT =
+        freshReg.threads[t.threadId] ||
+        Object.values(freshReg.threads).find((x) => x.conversationId === t.conversationId);
+      if (!freshT) return t;
+      const pending = Array.isArray(freshT.pendingUserMessages) ? freshT.pendingUserMessages : [];
+      pending.push({ id: `pm-${Date.now()}`, text, createdAt: now });
+      freshT.pendingUserMessages = pending.slice(-8);
+      if (override.modelDisplayName) freshT.modelDisplayName = override.modelDisplayName;
+      if (override.modelId || override.modelEnum) {
+        freshT.resolvedModel = override.modelId || override.modelEnum;
+      }
+      if (override.modelEnum) freshT.modelEnum = override.modelEnum;
+      freshT.pendingModelSwitch = {
+        modelDisplayName: freshT.modelDisplayName || override.modelDisplayName,
+        resolvedModel: freshT.resolvedModel || override.modelId || override.modelEnum,
+        modelEnum: override.modelEnum || '',
+        baselineGenMetaCount,
+        requestedAt: now,
+      };
+      freshT.runState = 'RUN_STATE_RUNNING';
+      freshT.updatedAt = now;
+      threadModelCache.set(freshT.conversationId, {
+        checkedAt: Date.now(),
+        updatedAt: now,
+        runState: 'RUN_STATE_RUNNING',
+        modelDisplayName: freshT.modelDisplayName || '',
+        resolvedModel: freshT.resolvedModel || '',
+        modelEnum: freshT.modelEnum || '',
+        genMetaCount: baselineGenMetaCount,
+        fromLs: true,
+      });
+      return freshT;
+    });
+    return { ok: true, thread: updatedThread };
+  }
+
+  let delivered = false;
+  if (resolveLsEndpoint()) {
+    try {
+      await sendUserCascadeMessage(t.conversationId, text, {});
+      delivered = true;
+    } catch {
+      // Fall back to agentapi send-message when LS ConnectRPC send is unavailable/rejected
+    }
+  }
+
+  if (!delivered) {
+    try {
       await invokeAgentApiSend({
         conversationId: t.conversationId,
         message: text,
         title: title || `Follow-up [${t.threadId}]`,
-        projectId: '',
+        projectId: t.projectId,
       });
-    } else {
-      throw err;
+    } catch (err) {
+      if (t.projectId) {
+        await invokeAgentApiSend({
+          conversationId: t.conversationId,
+          message: text,
+          title: title || `Follow-up [${t.threadId}]`,
+          projectId: '',
+        });
+      } else {
+        throw err;
+      }
     }
   }
 
   const now = new Date().toISOString();
-  const pending = Array.isArray(t.pendingUserMessages) ? t.pendingUserMessages : [];
-  pending.push({ id: `pm-${Date.now()}`, text, createdAt: now });
-  t.pendingUserMessages = pending.slice(-8);
-  t.runState = 'RUN_STATE_RUNNING';
-  t.updatedAt = now;
   seenRunningThreadIds.add(t.threadId);
-  saveRegistry(reg);
+  const updatedThread = mutateRegistry((freshReg) => {
+    const freshT =
+      freshReg.threads[t.threadId] ||
+      Object.values(freshReg.threads).find((x) => x.conversationId === t.conversationId);
+    if (!freshT) return t;
+    const pending = Array.isArray(freshT.pendingUserMessages) ? freshT.pendingUserMessages : [];
+    pending.push({ id: `pm-${Date.now()}`, text, createdAt: now });
+    freshT.pendingUserMessages = pending.slice(-8);
+    freshT.runState = 'RUN_STATE_RUNNING';
+    freshT.updatedAt = now;
+    return freshT;
+  });
 
-  return { ok: true, thread: t };
+  return { ok: true, thread: updatedThread };
 }
 
 const CLAIM_STALE_MS = 30_000;

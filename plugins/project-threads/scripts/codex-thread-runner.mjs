@@ -4,22 +4,22 @@ import { resolveLsEndpoint } from '../lib/ls-client.mjs';
 import {
   inspectWorktreeGit,
   loadRegistry,
-  saveRegistry,
+  mutateRegistry,
   syncCompletionToCoordinator,
 } from '../lib/store.mjs';
 import { syncCodexThreadRecord } from '../lib/codex-adapter.mjs';
 
 function updateRunInRegistry(threadId, round, updater) {
   try {
-    const reg = loadRegistry();
-    const t = reg.threads[threadId];
-    if (!t || !t.codex || !Array.isArray(t.codex.runs)) return null;
-    const run = t.codex.runs.find((r) => r.round === round) || t.codex.runs[t.codex.runs.length - 1];
-    if (!run) return null;
-    updater(t, run);
-    t.updatedAt = new Date().toISOString();
-    saveRegistry(reg);
-    return t;
+    return mutateRegistry((reg) => {
+      const t = reg.threads[threadId];
+      if (!t || !t.codex || !Array.isArray(t.codex.runs)) return null;
+      const run = t.codex.runs.find((r) => r.round === round) || t.codex.runs[t.codex.runs.length - 1];
+      if (!run) return null;
+      updater(t, run);
+      t.updatedAt = new Date().toISOString();
+      return t;
+    });
   } catch {
     return null;
   }
@@ -134,24 +134,44 @@ async function main() {
     });
   });
 
-  // Final sync of status.json into registry
+  // Final sync of status.json into registry (async git inspect outside lock, then atomic mutateRegistry)
   try {
-    const reg = loadRegistry();
-    const t = reg.threads[threadId];
-    if (t) {
-      const run = t.codex?.runs?.find((r) => r.round === round) || t.codex?.runs?.[t.codex.runs.length - 1];
-      if (run) {
-        if (run.exitCode === null || run.exitCode === undefined) run.exitCode = exitCode;
-        if (!run.finishedAt) run.finishedAt = new Date().toISOString();
-        if (run.state === 'running' || run.state === 'starting') {
-          run.state = exitCode === 0 ? 'finished' : exitCode === 124 ? 'timeout' : 'failed';
+    const snapshotReg = loadRegistry();
+    const snapT = snapshotReg.threads[threadId];
+    if (snapT) {
+      const snapRun = snapT.codex?.runs?.find((r) => r.round === round) || snapT.codex?.runs?.[snapT.codex.runs.length - 1];
+      if (snapRun) {
+        if (snapRun.exitCode === null || snapRun.exitCode === undefined) snapRun.exitCode = exitCode;
+        if (!snapRun.finishedAt) snapRun.finishedAt = new Date().toISOString();
+        if (snapRun.state === 'running' || snapRun.state === 'starting') {
+          snapRun.state = exitCode === 0 ? 'finished' : exitCode === 124 ? 'timeout' : 'failed';
         }
       }
-      await syncCodexThreadRecord(t, { inspectGitFn: inspectWorktreeGit });
-      t.runState = 'RUN_STATE_IDLE';
-      t.lastCompletedAt = t.lastCompletedAt || new Date().toISOString();
-      t.updatedAt = new Date().toISOString();
-      saveRegistry(reg);
+      await syncCodexThreadRecord(snapT, { inspectGitFn: inspectWorktreeGit });
+      const nowIso = new Date().toISOString();
+      mutateRegistry((freshReg) => {
+        const freshT = freshReg.threads[threadId];
+        if (!freshT) return;
+        freshT.runState = 'RUN_STATE_IDLE';
+        freshT.lastCompletedAt = snapT.lastCompletedAt || nowIso;
+        freshT.updatedAt = nowIso;
+        if (snapT.modelDisplayName) freshT.modelDisplayName = snapT.modelDisplayName;
+        if (snapT.resolvedModel) freshT.resolvedModel = snapT.resolvedModel;
+        if (snapT.worktreePath && !freshT.codex?.worktreeCleaned) freshT.worktreePath = snapT.worktreePath;
+        if (snapT.branch) freshT.branch = snapT.branch;
+        if (snapT.git) freshT.git = snapT.git;
+        if (snapT.codex && freshT.codex) {
+          if (snapT.codex.sessionId) freshT.codex.sessionId = snapT.codex.sessionId;
+          if (snapT.codex.desktopUrl) freshT.codex.desktopUrl = snapT.codex.desktopUrl;
+          if (snapT.codex.nativeSession) freshT.codex.nativeSession = snapT.codex.nativeSession;
+          if (snapT.codex.worktreeTopology) freshT.codex.worktreeTopology = snapT.codex.worktreeTopology;
+          if (Array.isArray(snapT.codex.worktreeRepos)) freshT.codex.worktreeRepos = snapT.codex.worktreeRepos;
+          freshT.codex.lastErrorKind = snapT.codex.lastErrorKind || '';
+          freshT.codex.lastError = snapT.codex.lastError || '';
+          const freshRun = freshT.codex.runs?.find((r) => r.round === round);
+          if (freshRun && snapRun) Object.assign(freshRun, snapRun);
+        }
+      });
     }
   } catch {
     // Non-fatal; Sidecar watcher can still reconcile

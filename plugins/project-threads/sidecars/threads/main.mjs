@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Response, SidecarApp } from 'sidecar_sdk';
-import { resolveLsEndpoint } from '../../lib/ls-client.mjs';
+import { getCascadeModelCatalog, resolveLsEndpoint } from '../../lib/ls-client.mjs';
 import {
   archiveThread,
   cleanupThreadWorktree,
@@ -89,24 +89,37 @@ app.api(
   'GET',
 );
 
-app.api(
-  '/api/models',
-  async (data = {}) => {
-    try {
-      resolveLsEndpoint();
-      const info = await getModelSelectorState({
-        workspacePath: data.workspace || '',
-        conversationId: data.conversationId || '',
-        coordinatorId: data.coordinatorId || '',
-        projectId: data.projectId || '',
-      });
-      return { ok: true, ...info };
-    } catch (err) {
-      return { ok: false, error: err.message, locale: resolveAppLocale(), models: [] };
-    }
-  },
-  'GET',
-);
+async function handleModels(data = {}) {
+  try {
+    resolveLsEndpoint();
+    const forceRefresh = parseBool(data.refresh, false);
+    const info = await getModelSelectorState({
+      workspacePath: data.workspace || '',
+      conversationId: data.conversationId || '',
+      coordinatorId: data.coordinatorId || '',
+      projectId: data.projectId || '',
+      forceRefresh,
+    });
+    return {
+      ...info,
+      ok: info.ok !== false || (Array.isArray(info.models) && info.models.length > 0),
+    };
+  } catch (err) {
+    const fallbackCatalog = await getCascadeModelCatalog({ allowCachedOnly: true }).catch(() => ({
+      models: [],
+      defaultModel: null,
+    }));
+    return {
+      ok: false,
+      error: err.message,
+      locale: resolveAppLocale(),
+      models: fallbackCatalog.models || [],
+      defaultModelId: fallbackCatalog.defaultModel?.id || '',
+      defaultModelEnum: fallbackCatalog.defaultModel?.modelEnum || '',
+    };
+  }
+}
+registerDualApi('/api/models', handleModels);
 
 app.api(
   '/api/thread_messages',
@@ -126,9 +139,21 @@ app.api(
 
 async function handleThreadSend(data = {}) {
   try {
+    let parsedModelOrAlias = data.modelOrAlias || null;
+    if (typeof parsedModelOrAlias === 'string') {
+      try {
+        parsedModelOrAlias = JSON.parse(parsedModelOrAlias);
+      } catch {
+        parsedModelOrAlias = null;
+      }
+    }
     const res = await sendThreadMessage({
       threadId: data.threadId || '',
       message: data.message || '',
+      model: data.model || '',
+      modelEnum: data.modelEnum || '',
+      modelOrAlias: parsedModelOrAlias,
+      modelDisplayName: data.modelDisplayName || '',
     });
     return { ...res, locale: resolveAppLocale() };
   } catch (err) {
