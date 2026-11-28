@@ -16,6 +16,10 @@ import {
   buildCoordinatorReport,
   DEFAULT_COORDINATOR_REPORT_MAX_CHARS,
   extractSessionTelemetry,
+  extractThreadCompletion,
+  parseThreadTranscript,
+  peekLiveActivity,
+  scanPendingBackgroundTasks,
 } from '../lib/transcript.mjs';
 import {
   dispatchThread,
@@ -623,6 +627,157 @@ test('getThreadDetail supports includeFullReport=true with transcript_full hydra
   assert.equal(callResult.isError, undefined);
   assert.ok(callResult.content[0].text.includes('FINAL_VERIFIED_FACT'));
   assert.equal(callResult.structuredContent.fullReport, fullAssistantText);
+});
+
+test('scanPendingBackgroundTasks and parseThreadTranscript ignore IsDaemon tasks and clear pending tasks on server restart', (t) => {
+  const nowIso = new Date().toISOString();
+  const convId = 'conv-daemon-test-001';
+
+  // 1. IsDaemon=true (stringified & boolean) on run_command / schedule must not block completion
+  const daemonSteps = [
+    { step_index: 0, type: 'USER_INPUT', created_at: nowIso, content: '<USER_REQUEST>Start daemon and verify</USER_REQUEST>' },
+    {
+      step_index: 1,
+      type: 'PLANNER_RESPONSE',
+      created_at: nowIso,
+      tool_calls: [
+        {
+          name: 'run_command',
+          args: {
+            CommandLine: '"sb run d:/repo --port 30030"',
+            IsDaemon: 'true',
+            WaitMsBeforeAsync: '500',
+            toolSummary: '"Start fms269 Spring Boot daemon"',
+          },
+        },
+        {
+          name: 'schedule',
+          args: {
+            CronExpression: '"*/10 * * * *"',
+            IsDaemon: true,
+            Prompt: '"Standing check"',
+          },
+        },
+      ],
+    },
+    {
+      step_index: 2,
+      type: 'GENERIC',
+      status: 'RUNNING',
+      created_at: nowIso,
+      content: `Tool is running as a background task with task id: ${convId}/task-2`,
+    },
+    {
+      step_index: 3,
+      type: 'GENERIC',
+      status: 'RUNNING',
+      created_at: nowIso,
+      content: `Tool is running as a background task with task id: ${convId}/task-3`,
+    },
+    {
+      step_index: 4,
+      type: 'PLANNER_RESPONSE',
+      created_at: nowIso,
+      content: 'Service started and verified.\n\n### Thread Summary\nAll checks passed.',
+    },
+  ];
+  assert.deepEqual(scanPendingBackgroundTasks(daemonSteps), []);
+
+  // 2. Non-daemon background task stays pending until finished or server restart notice
+  const nonDaemonSteps = [
+    { step_index: 0, type: 'USER_INPUT', created_at: nowIso, content: '<USER_REQUEST>Run build</USER_REQUEST>' },
+    {
+      step_index: 1,
+      type: 'PLANNER_RESPONSE',
+      created_at: nowIso,
+      tool_calls: [
+        {
+          name: 'run_command',
+          args: {
+            CommandLine: '"mvn test"',
+            WaitMsBeforeAsync: '5000',
+            toolSummary: '"Run maven test"',
+          },
+        },
+      ],
+    },
+    {
+      step_index: 2,
+      type: 'GENERIC',
+      status: 'RUNNING',
+      created_at: nowIso,
+      content: `Tool is running as a background task with task id: ${convId}/task-10`,
+    },
+  ];
+  const pendingBefore = scanPendingBackgroundTasks(nonDaemonSteps);
+  assert.equal(pendingBefore.length, 1);
+  assert.equal(pendingBefore[0].taskId, `${convId}/task-10`);
+
+  const afterRestartSteps = [
+    ...nonDaemonSteps,
+    {
+      step_index: 3,
+      type: 'SYSTEM_MESSAGE',
+      created_at: nowIso,
+      content:
+        'The following is a <SYSTEM_MESSAGE>\n<SYSTEM_MESSAGE>\n[Message] sender=system content=[Notice] All your subagents and background tasks have been stopped due to server restart.\n</SYSTEM_MESSAGE>',
+    },
+    {
+      step_index: 4,
+      type: 'PLANNER_RESPONSE',
+      created_at: nowIso,
+      content: 'Recovered after restart.',
+    },
+  ];
+  assert.deepEqual(scanPendingBackgroundTasks(afterRestartSteps), []);
+
+  // 3. End-to-end transcript file checks for extractThreadCompletion, peekLiveActivity, and parseThreadTranscript
+  const tempRoot = mkdtempSync(join(tmpdir(), 'pt-daemon-tx-'));
+  const prevAppData = process.env.ANTIGRAVITY_APP_DATA_DIR;
+  process.env.ANTIGRAVITY_APP_DATA_DIR = tempRoot;
+  t.after(() => {
+    if (prevAppData === undefined) delete process.env.ANTIGRAVITY_APP_DATA_DIR;
+    else process.env.ANTIGRAVITY_APP_DATA_DIR = prevAppData;
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  const txDir = join(tempRoot, 'brain', convId, '.system_generated', 'logs');
+  mkdirSync(txDir, { recursive: true });
+  const txPath = join(txDir, 'transcript.jsonl');
+  writeFileSync(txPath, `${daemonSteps.map((s) => JSON.stringify(s)).join('\n')}\n`, 'utf8');
+
+  const liveAct = peekLiveActivity(convId);
+  assert.equal(liveAct.hasPendingBgTask, false);
+  assert.equal(liveAct.lastStepIndex, 4);
+
+  const comp = extractThreadCompletion(convId);
+  assert.equal(comp.waitingOnBackgroundTask, false);
+  assert.equal(comp.stepIndex, 4);
+  assert.ok(comp.fullReport.includes('All checks passed.'));
+
+  const parsed = parseThreadTranscript(convId);
+  const traceItem = parsed.items.find((x) => x.kind === 'trace');
+  assert.ok(traceItem);
+  assert.equal(traceItem.calls[0].running, false);
+  assert.equal(traceItem.calls[0].done, true);
+  const finalAssistant = parsed.items.find((x) => x.kind === 'assistant');
+  assert.ok(finalAssistant);
+  assert.equal(finalAssistant.isFinalReply, true);
+  assert.equal(finalAssistant.showFooter, true);
+
+  // Also verify server-restart notice hides itself from user bubbles and clears running state
+  const convRestart = 'conv-restart-test-002';
+  const txDir2 = join(tempRoot, 'brain', convRestart, '.system_generated', 'logs');
+  mkdirSync(txDir2, { recursive: true });
+  writeFileSync(
+    join(txDir2, 'transcript.jsonl'),
+    `${afterRestartSteps.map((s) => JSON.stringify(s)).join('\n')}\n`,
+    'utf8',
+  );
+  const parsedRestart = parseThreadTranscript(convRestart);
+  assert.equal(parsedRestart.items.filter((x) => x.kind === 'user').length, 1);
+  const restartFinal = parsedRestart.items.find((x) => x.kind === 'assistant');
+  assert.ok(restartFinal && restartFinal.isFinalReply === true);
 });
 
 test('local-hardening static checks: default model inherits/neon-xhigh, dynamic model dropdown, agy-fs guidance, 10s poll, LF endings intact', () => {

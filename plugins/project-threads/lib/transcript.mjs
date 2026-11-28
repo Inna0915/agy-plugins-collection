@@ -385,11 +385,36 @@ function computeSpanSeconds(startIso, endIso, minSec = 1, maxSec = 86400) {
   return Math.min(maxSec, Math.max(minSec, diff));
 }
 
+function isDaemonToolCall(call) {
+  if (!call || typeof call !== 'object' || !call.args || typeof call.args !== 'object') {
+    return false;
+  }
+  const raw = call.args.IsDaemon !== undefined ? call.args.IsDaemon : call.args.isDaemon;
+  if (raw === true) return true;
+  if (raw === false || raw === undefined || raw === null) return false;
+  return String(unquoteArg(raw)).trim().toLowerCase() === 'true';
+}
+
+function isServerRestartTaskNotice(text) {
+  return /background tasks have been stopped due to server restart/i.test(String(text || ''));
+}
+
 export function scanPendingBackgroundTasks(steps, maxAgeMs = 45 * 60 * 1000) {
   if (!Array.isArray(steps) || steps.length === 0) return [];
 
   const pendingMap = new Map(); // taskId -> { taskId, startedAt, summary }
+  const daemonTaskIds = new Set();
   const seenGenericStepIndices = new Set();
+
+  const isKnownDaemonTask = (targetId) => {
+    const id = String(targetId || '').trim();
+    if (!id) return false;
+    if (daemonTaskIds.has(id)) return true;
+    for (const d of daemonTaskIds) {
+      if (d.endsWith(`/${id}`) || id.endsWith(`/${d}`)) return true;
+    }
+    return false;
+  };
 
   const removeMatchingTask = (targetId) => {
     const id = String(targetId || '').trim();
@@ -442,14 +467,19 @@ export function scanPendingBackgroundTasks(steps, maxAgeMs = 45 * 60 * 1000) {
             );
             if (bgMatch) {
               const taskId = bgMatch[1].trim();
-              const info = summarizeToolCall(call);
-              const summary = !info.skip && info.target ? String(info.target) : '';
               if (taskId) {
-                pendingMap.set(taskId, {
-                  taskId,
-                  startedAt: nextStep.created_at || step.created_at || '',
-                  summary,
-                });
+                if (isDaemonToolCall(call)) {
+                  daemonTaskIds.add(taskId);
+                  removeMatchingTask(taskId);
+                } else {
+                  const info = summarizeToolCall(call);
+                  const summary = !info.skip && info.target ? String(info.target) : '';
+                  pendingMap.set(taskId, {
+                    taskId,
+                    startedAt: nextStep.created_at || step.created_at || '',
+                    summary,
+                  });
+                }
               }
             }
           }
@@ -467,7 +497,7 @@ export function scanPendingBackgroundTasks(steps, maxAgeMs = 45 * 60 * 1000) {
       );
       if (bgMatch) {
         const taskId = bgMatch[1].trim();
-        if (taskId && !pendingMap.has(taskId)) {
+        if (taskId && !isKnownDaemonTask(taskId) && !pendingMap.has(taskId)) {
           pendingMap.set(taskId, {
             taskId,
             startedAt: step.created_at || '',
@@ -479,8 +509,16 @@ export function scanPendingBackgroundTasks(steps, maxAgeMs = 45 * 60 * 1000) {
     }
 
     if (step.type === 'SYSTEM_MESSAGE' && typeof step.content === 'string') {
+      if (isServerRestartTaskNotice(step.content)) {
+        pendingMap.clear();
+        continue;
+      }
       if (!step.content.includes('[Message]')) continue;
       const cleaned = cleanUserContent(step.content);
+      if (isServerRestartTaskNotice(cleaned)) {
+        pendingMap.clear();
+        continue;
+      }
       const finishedMatch = cleaned.match(/^Task id\s+"([^"]+)"\s+finished with result:/i);
       if (finishedMatch) {
         removeMatchingTask(finishedMatch[1]);
@@ -665,8 +703,19 @@ export function parseThreadTranscript(conversationId, pendingUserMessages = []) 
             continue;
           }
 
-          // Check if this SYSTEM_MESSAGE [Message] is an async background task completion/notification
+          // Check if this SYSTEM_MESSAGE [Message] is a server-restart task stop notice or async background task notification
           if (step.type === 'SYSTEM_MESSAGE') {
+            if (isServerRestartTaskNotice(step.content || '') || isServerRestartTaskNotice(cleaned)) {
+              for (const taskId of pendingBgTaskIds) {
+                const launchedEntry = toolEntryByBgTaskId.get(taskId);
+                if (launchedEntry) {
+                  launchedEntry.running = false;
+                  launchedEntry.done = true;
+                }
+              }
+              pendingBgTaskIds.clear();
+              continue;
+            }
             const bgTask = parseBackgroundTaskMessage(step.content || '', cleaned, taskSummaryById);
             if (bgTask) {
               if (lastStandaloneAssistantInTurn) {
@@ -818,6 +867,7 @@ export function parseThreadTranscript(conversationId, pendingUserMessages = []) 
                 continue;
               }
 
+              const isDaemon = isDaemonToolCall(calls[c]);
               let bgTaskId = '';
               if (nextStep && typeof nextStep.content === 'string') {
                 const bgMatch = nextStep.content.match(
@@ -828,7 +878,7 @@ export function parseThreadTranscript(conversationId, pendingUserMessages = []) 
                   if (bgTaskId && info.target) {
                     taskSummaryById.set(bgTaskId, info.target);
                   }
-                  if (bgTaskId) {
+                  if (bgTaskId && !isDaemon) {
                     pendingBgTaskIds.add(bgTaskId);
                   }
                 }
@@ -836,7 +886,7 @@ export function parseThreadTranscript(conversationId, pendingUserMessages = []) 
 
               const outputPreview = nextStep ? cleanToolOutput(nextStep.content) : '';
               const isRunning = bgTaskId
-                ? true
+                ? !isDaemon
                 : !nextStep
                   ? isAtTranscriptTail
                   : nextStep.status === 'RUNNING' && isAtTranscriptTail;
